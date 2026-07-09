@@ -1,7 +1,7 @@
 # OpenAI Tunnel for HA-MCP
 
-A HACS custom integration that runs a local HA-MCP server inside Home Assistant
-and exposes it through `openai/tunnel-client` `v0.0.10`.
+A HACS custom integration that exposes an existing HA-MCP server through
+`openai/tunnel-client` `v0.0.10`.
 
 The integration downloads the host-specific `tunnel-client` release binary on
 first run, verifies the pinned SHA256 digest, extracts it under
@@ -18,27 +18,30 @@ subprocess.
 
 ## OpenAI Setup
 
-1. Create or inspect a tunnel in OpenAI Platform Tunnels.
-2. Create a runtime API key with **Tunnels Read** and **Tunnels Use**.
-3. Configure this integration with:
+1. Install and start the upstream HA-MCP custom component or add-on.
+2. Copy its local/direct MCP URL, including the secret path.
+3. Create or inspect a tunnel in OpenAI Platform Tunnels.
+4. Create a runtime API key with **Tunnels Read** and **Tunnels Use**.
+5. Configure this integration with:
    - `CONTROL_PLANE_TUNNEL_ID`, formatted as `tunnel_` followed by 32 lowercase
      hex characters.
    - The runtime API key. This is stored in the Home Assistant config entry and
      passed to `tunnel-client` as `env:CONTROL_PLANE_API_KEY`.
-   - Optional control-plane base URL/path for non-default environments.
-4. After the tunnel status entity reports ready, configure the ChatGPT/OpenAI
+   - The HA-MCP server URL, such as
+     `http://127.0.0.1:9584/private_<random>`.
+   - Optional control-plane base URL/URL path for non-default environments.
+6. After the tunnel status entity reports ready, configure the ChatGPT/OpenAI
    connector to use the tunnel.
 
 ## Runtime Behavior
 
-The integration starts HA-MCP on `127.0.0.1` with an internal secret path, then
-starts:
+The integration validates the configured HA-MCP URL, then starts:
 
 ```bash
 tunnel-client run \
   --control-plane.tunnel-id <id> \
   --control-plane.api-key env:CONTROL_PLANE_API_KEY \
-  --mcp-server-url channel=main,url=http://127.0.0.1:<ha-mcp-port><secret-path> \
+  --mcp.server-url channel=main,url=<ha-mcp-url> \
   --health.listen-addr 127.0.0.1:0 \
   --health.url-file <integration-run-dir>/health.url
 ```
@@ -56,7 +59,6 @@ supported initially. Other platforms create a Home Assistant repair issue.
 
 - `hass_codex_tunnel_mcp.restart_tunnel`
 - `hass_codex_tunnel_mcp.redownload_tunnel_client`
-- `hass_codex_tunnel_mcp.restart_mcp_server`
 
 ## Development Checks
 

@@ -16,12 +16,3 @@ redownload_tunnel_client:
       required: false
       selector:
         text:
-restart_mcp_server:
-  target:
-    entity:
-      integration: hass_codex_tunnel_mcp
-  fields:
-    entry_id:
-      required: false
-      selector:
-        text:

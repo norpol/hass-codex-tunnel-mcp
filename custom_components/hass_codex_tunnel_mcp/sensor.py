@@ -80,12 +80,10 @@ class TunnelProcessSensor(BaseTunnelSensor):
     def extra_state_attributes(self):
         """Return tunnel process attributes."""
         status = self.runtime["tunnel"].status
-        mcp = self.runtime["mcp"].status
         return {
             "health_url": status.health_url,
             "returncode": status.returncode,
             "last_error": status.last_error,
-            "mcp_state": mcp.state,
         }
 
 

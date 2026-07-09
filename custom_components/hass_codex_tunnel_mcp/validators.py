@@ -9,9 +9,11 @@ from .const import (
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
+    CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
     TUNNEL_ID_RE,
 )
+from .mcp_url import MCPUrlError, normalize_mcp_url
 
 
 class InputValidationError(ValueError):
@@ -40,9 +42,14 @@ def normalize_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
     api_key = str(user_input[CONF_API_KEY]).strip()
     if not api_key:
         raise InputValidationError("missing_api_key")
+    try:
+        mcp_url = normalize_mcp_url(str(user_input[CONF_HA_MCP_URL]))
+    except MCPUrlError as err:
+        raise InputValidationError(str(err)) from err
     return {
         CONF_TUNNEL_ID: validate_tunnel_id(str(user_input[CONF_TUNNEL_ID])),
         CONF_API_KEY: api_key,
+        CONF_HA_MCP_URL: mcp_url,
         CONF_CONTROL_PLANE_BASE_URL: normalize_optional_url(
             user_input.get(CONF_CONTROL_PLANE_BASE_URL)
         ),

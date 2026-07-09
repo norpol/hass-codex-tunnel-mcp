@@ -7,6 +7,7 @@ from custom_components.hass_codex_tunnel_mcp.const import (
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
+    CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
 )
 from custom_components.hass_codex_tunnel_mcp.tunnel import (
@@ -19,8 +20,8 @@ from custom_components.hass_codex_tunnel_mcp.tunnel import (
 
 def test_build_mcp_server_url() -> None:
     assert (
-        build_mcp_server_url(1234, "/secret")
-        == "channel=main,url=http://127.0.0.1:1234/secret"
+        build_mcp_server_url("http://127.0.0.1:9584/private_secret")
+        == "channel=main,url=http://127.0.0.1:9584/private_secret"
     )
 
 
@@ -29,11 +30,10 @@ def test_build_tunnel_command_includes_required_flags(tmp_path: Path) -> None:
         tmp_path / "tunnel-client",
         TunnelCommandConfig(
             tunnel_id="tunnel_0123456789abcdef0123456789abcdef",
-            mcp_port=8124,
-            secret_path="/mcp/secret",
+            mcp_server_url="http://127.0.0.1:9584/private_secret",
             run_dir=tmp_path,
             control_plane_base_url="https://control.example",
-            control_plane_path="/v1",
+            control_plane_url_path="/v1",
         ),
     )
 
@@ -42,12 +42,14 @@ def test_build_tunnel_command_includes_required_flags(tmp_path: Path) -> None:
     assert "tunnel_0123456789abcdef0123456789abcdef" in command
     assert "--control-plane.api-key" in command
     assert "env:CONTROL_PLANE_API_KEY" in command
-    assert "--mcp-server-url" in command
-    assert "channel=main,url=http://127.0.0.1:8124/mcp/secret" in command
+    assert "--mcp.server-url" in command
+    assert "channel=main,url=http://127.0.0.1:9584/private_secret" in command
     assert "--health.listen-addr" in command
     assert "127.0.0.1:0" in command
     assert "--control-plane.base-url" in command
     assert "https://control.example" in command
+    assert "--control-plane.url-path" in command
+    assert "/v1" in command
 
 
 def test_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None:
@@ -76,11 +78,10 @@ async def _run_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None
         {
             CONF_TUNNEL_ID: "tunnel_0123456789abcdef0123456789abcdef",
             CONF_API_KEY: "runtime-key",
+            CONF_HA_MCP_URL: "http://127.0.0.1:9584/private_secret",
             CONF_CONTROL_PLANE_BASE_URL: "",
             CONF_CONTROL_PLANE_PATH: "",
-        },
-        mcp_port=1234,
-        secret_path="/mcp/secret",
+        }
     )
     for _ in range(20):
         if manager.status.healthy:

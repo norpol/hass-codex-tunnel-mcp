@@ -4,18 +4,22 @@
     "step": {
       "user": {
         "title": "OpenAI Tunnel for HA-MCP",
-        "description": "Create or inspect a tunnel in OpenAI Platform Tunnels, then create a runtime key with Tunnels Read and Tunnels Use. After this integration is healthy, configure the ChatGPT/OpenAI connector to use the tunnel.",
+        "description": "Install and start the upstream HA-MCP custom component or add-on first, then paste its local/direct MCP URL here. Create or inspect a tunnel in OpenAI Platform Tunnels, then create a runtime key with Tunnels Read and Tunnels Use.",
         "data": {
           "tunnel_id": "Control-plane tunnel ID",
           "api_key": "Runtime API key",
+          "ha_mcp_url": "HA-MCP server URL",
           "control_plane_base_url": "Control-plane base URL",
-          "control_plane_path": "Control-plane path"
+          "control_plane_url_path": "Control-plane URL path"
         }
       }
     },
     "error": {
       "invalid_tunnel_id": "Tunnel IDs must look like tunnel_ followed by 32 lowercase hexadecimal characters.",
       "missing_api_key": "Enter a runtime API key.",
+      "invalid_mcp_url": "Enter a valid HTTP or HTTPS HA-MCP URL.",
+      "missing_mcp_path": "Enter the full HA-MCP URL including its secret path.",
+      "default_mcp_path": "Do not use the default /mcp path. Use the secret HA-MCP URL shown by the HA-MCP integration or add-on.",
       "invalid_input": "Check the values and try again."
     },
     "abort": {
@@ -26,18 +30,22 @@
     "step": {
       "init": {
         "title": "OpenAI Tunnel for HA-MCP",
-        "description": "Update the tunnel ID, runtime API key, or non-default control-plane endpoint.",
+        "description": "Update the tunnel ID, runtime API key, HA-MCP URL, or non-default control-plane endpoint.",
         "data": {
           "tunnel_id": "Control-plane tunnel ID",
           "api_key": "Runtime API key",
+          "ha_mcp_url": "HA-MCP server URL",
           "control_plane_base_url": "Control-plane base URL",
-          "control_plane_path": "Control-plane path"
+          "control_plane_url_path": "Control-plane URL path"
         }
       }
     },
     "error": {
       "invalid_tunnel_id": "Tunnel IDs must look like tunnel_ followed by 32 lowercase hexadecimal characters.",
       "missing_api_key": "Enter a runtime API key.",
+      "invalid_mcp_url": "Enter a valid HTTP or HTTPS HA-MCP URL.",
+      "missing_mcp_path": "Enter the full HA-MCP URL including its secret path.",
+      "default_mcp_path": "Do not use the default /mcp path. Use the secret HA-MCP URL shown by the HA-MCP integration or add-on.",
       "invalid_input": "Check the values and try again."
     }
   },
@@ -54,9 +62,17 @@
       "title": "tunnel-client download failed",
       "description": "The pinned tunnel-client binary could not be downloaded or verified: {error}"
     },
-    "ha_mcp_failed": {
-      "title": "HA-MCP failed to start",
-      "description": "The local HA-MCP server failed to start: {error}"
+    "mcp_url_unreachable": {
+      "title": "HA-MCP URL is not reachable",
+      "description": "The configured HA-MCP URL could not be reached: {url}"
+    },
+    "public_mcp_url": {
+      "title": "HA-MCP URL does not look local",
+      "description": "The configured HA-MCP URL is not loopback or private LAN: {url}. Prefer the direct local HA-MCP URL and let OpenAI Tunnel handle remote access."
+    },
+    "https_mcp_url": {
+      "title": "HA-MCP URL uses HTTPS",
+      "description": "The configured HA-MCP URL uses HTTPS: {url}. This is allowed, but the recommended setup is a local/direct HA-MCP URL."
     },
     "tunnel_client_exited": {
       "title": "tunnel-client exited",

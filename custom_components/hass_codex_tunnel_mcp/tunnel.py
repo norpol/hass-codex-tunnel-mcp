@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 
@@ -12,9 +13,12 @@ from .const import (
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
+    CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
     TUNNEL_CLIENT_VERSION,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -22,17 +26,15 @@ class TunnelCommandConfig:
     """Inputs required to build a tunnel-client command."""
 
     tunnel_id: str
-    mcp_port: int
-    secret_path: str
+    mcp_server_url: str
     run_dir: Path
     control_plane_base_url: str = ""
-    control_plane_path: str = ""
+    control_plane_url_path: str = ""
 
 
-def build_mcp_server_url(port: int, secret_path: str) -> str:
+def build_mcp_server_url(url: str) -> str:
     """Build the channel-mapped local MCP server URL."""
-    path = secret_path if secret_path.startswith("/") else f"/{secret_path}"
-    return f"channel=main,url=http://127.0.0.1:{port}{path}"
+    return f"channel=main,url={url}"
 
 
 def build_tunnel_command(executable: Path, config: TunnelCommandConfig) -> list[str]:
@@ -45,8 +47,8 @@ def build_tunnel_command(executable: Path, config: TunnelCommandConfig) -> list[
         config.tunnel_id,
         "--control-plane.api-key",
         "env:CONTROL_PLANE_API_KEY",
-        "--mcp-server-url",
-        build_mcp_server_url(config.mcp_port, config.secret_path),
+        "--mcp.server-url",
+        build_mcp_server_url(config.mcp_server_url),
         "--health.listen-addr",
         "127.0.0.1:0",
         "--health.url-file",
@@ -54,8 +56,8 @@ def build_tunnel_command(executable: Path, config: TunnelCommandConfig) -> list[
     ]
     if config.control_plane_base_url:
         command.extend(["--control-plane.base-url", config.control_plane_base_url])
-    if config.control_plane_path:
-        command.extend(["--control-plane.path", config.control_plane_path])
+    if config.control_plane_url_path:
+        command.extend(["--control-plane.url-path", config.control_plane_url_path])
     return command
 
 
@@ -85,6 +87,7 @@ class TunnelManager:
         self._notify = notify or (lambda: None)
         self._process: asyncio.subprocess.Process | None = None
         self._watch_task: asyncio.Task[None] | None = None
+        self._log_tasks: list[asyncio.Task[None]] = []
         self.status = TunnelStatus()
 
     @property
@@ -96,8 +99,6 @@ class TunnelManager:
         self,
         entry_data: Mapping[str, object],
         *,
-        mcp_port: int,
-        secret_path: str,
         force_download: bool = False,
     ) -> None:
         """Start tunnel-client."""
@@ -113,13 +114,14 @@ class TunnelManager:
             Path(executable),
             TunnelCommandConfig(
                 tunnel_id=tunnel_id,
-                mcp_port=mcp_port,
-                secret_path=secret_path,
+                mcp_server_url=str(entry_data[CONF_HA_MCP_URL]),
                 run_dir=self._run_dir,
                 control_plane_base_url=str(
                     entry_data.get(CONF_CONTROL_PLANE_BASE_URL) or ""
                 ),
-                control_plane_path=str(entry_data.get(CONF_CONTROL_PLANE_PATH) or ""),
+                control_plane_url_path=str(
+                    entry_data.get(CONF_CONTROL_PLANE_PATH) or ""
+                ),
             ),
         )
         env = os.environ.copy()
@@ -139,6 +141,7 @@ class TunnelManager:
             raise
 
         self.status = TunnelStatus(state="running")
+        self._start_log_tasks()
         self._watch_task = asyncio.create_task(self._watch_process(health_file))
         self._notify()
 
@@ -161,23 +164,20 @@ class TunnelManager:
             except TimeoutError:
                 process.kill()
                 await process.wait()
+        await self._stop_log_tasks()
         self.status = TunnelStatus(state="stopped")
         self._notify()
 
     async def restart(
-        self, entry_data: Mapping[str, object], *, mcp_port: int, secret_path: str
+        self, entry_data: Mapping[str, object]
     ) -> None:
         """Restart tunnel-client with existing binary state."""
-        await self.start(entry_data, mcp_port=mcp_port, secret_path=secret_path)
+        await self.start(entry_data)
 
-    async def redownload(
-        self, entry_data: Mapping[str, object], *, mcp_port: int, secret_path: str
-    ) -> None:
+    async def redownload(self, entry_data: Mapping[str, object]) -> None:
         """Force a fresh binary download and restart."""
         await self.start(
             entry_data,
-            mcp_port=mcp_port,
-            secret_path=secret_path,
             force_download=True,
         )
 
@@ -199,7 +199,38 @@ class TunnelManager:
         self.status.returncode = returncode
         if returncode:
             self.status.last_error = f"tunnel-client exited with status {returncode}"
+        await self._stop_log_tasks()
         self._notify()
+
+    def _start_log_tasks(self) -> None:
+        if self._process is None:
+            return
+        if self._process.stdout is not None:
+            self._log_tasks.append(
+                asyncio.create_task(self._log_stream(self._process.stdout, logging.INFO))
+            )
+        if self._process.stderr is not None:
+            self._log_tasks.append(
+                asyncio.create_task(
+                    self._log_stream(self._process.stderr, logging.WARNING)
+                )
+            )
+
+    async def _stop_log_tasks(self) -> None:
+        for task in self._log_tasks:
+            task.cancel()
+        for task in self._log_tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._log_tasks.clear()
+
+    async def _log_stream(
+        self, stream: asyncio.StreamReader, level: int
+    ) -> None:
+        while line := await stream.readline():
+            _LOGGER.log(level, "tunnel-client: %s", line.decode(errors="replace").rstrip())
 
     async def _watch_health_file(self, health_file: Path) -> None:
         while True:

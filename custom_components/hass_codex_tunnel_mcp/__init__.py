@@ -13,12 +13,13 @@ if TYPE_CHECKING:
 from .binary import TunnelClientError, UnsupportedPlatformError, ensure_tunnel_client
 from .const import (
     BIN_DIR_NAME,
+    CONF_HA_MCP_URL,
     DOMAIN,
     PLATFORMS,
     RUN_DIR_NAME,
     STORAGE_DIR,
 )
-from .mcp_server import HAMCPServerManager
+from .mcp_url import MCPUrlError, assess_mcp_url, async_probe_mcp_url
 from .repairs import create_issue, delete_issue
 from .tunnel import TunnelManager
 
@@ -33,7 +34,6 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
     storage_dir = Path(hass.config.path(STORAGE_DIR))
     bin_root = storage_dir / BIN_DIR_NAME
     run_dir = storage_dir / RUN_DIR_NAME / entry.entry_id
-    deps_dir = storage_dir / "deps"
 
     def notify() -> None:
         runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id)
@@ -44,10 +44,8 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
     async def executable_provider(force: bool):
         return await ensure_tunnel_client(bin_root, force=force)
 
-    mcp = HAMCPServerManager(hass, deps_dir, notify)
     tunnel = TunnelManager(executable_provider, run_dir, notify)
     hass.data[DOMAIN][entry.entry_id] = {
-        "mcp": mcp,
         "tunnel": tunnel,
         "listeners": [],
         "entry_data": _entry_data_factory(entry),
@@ -55,20 +53,30 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
 
     try:
         try:
-            await mcp.start()
-        except Exception as err:
+            assessment = assess_mcp_url(
+                str({**entry.data, **entry.options}[CONF_HA_MCP_URL])
+            )
+            await async_probe_mcp_url(assessment.url)
+        except MCPUrlError as err:
             await create_issue(
-                hass, "ha_mcp_failed", "ha_mcp_failed", {"error": str(err)}
+                hass,
+                "mcp_url_unreachable",
+                "mcp_url_unreachable",
+                {"url": assessment.redacted_url if "assessment" in locals() else ""},
             )
             raise
-        if mcp.status.port is None or mcp.status.secret_path is None:
-            raise RuntimeError("ha-mcp did not report a local endpoint")
-        try:
-            await tunnel.start(
-                {**entry.data, **entry.options},
-                mcp_port=mcp.status.port,
-                secret_path=mcp.status.secret_path,
+        if assessment.warning is not None:
+            await create_issue(
+                hass,
+                "mcp_url_warning",
+                assessment.warning,
+                {"url": assessment.redacted_url},
             )
+        else:
+            await delete_issue(hass, "mcp_url_warning")
+
+        try:
+            await tunnel.start({**entry.data, **entry.options})
         except TunnelClientError as err:
             await create_issue(
                 hass,
@@ -98,7 +106,7 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
     await delete_issue(hass, "startup_failed")
     await delete_issue(hass, "unsupported_arch")
     await delete_issue(hass, "binary_download_failed")
-    await delete_issue(hass, "ha_mcp_failed")
+    await delete_issue(hass, "mcp_url_unreachable")
     await _async_register_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -111,7 +119,6 @@ async def async_unload_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> boo
     runtime = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     if runtime is not None:
         await runtime["tunnel"].stop()
-        await runtime["mcp"].stop()
     return unload_ok
 
 
@@ -127,43 +134,16 @@ async def _async_register_services(hass: "HomeAssistant") -> None:
 
     async def restart_tunnel(call: "ServiceCall") -> None:
         for runtime in _matching_runtimes(hass, call):
-            mcp = runtime["mcp"]
-            if mcp.status.port is None or mcp.status.secret_path is None:
-                raise RuntimeError("ha-mcp is not running")
-            await runtime["tunnel"].restart(
-                runtime["entry_data"](),
-                mcp_port=mcp.status.port,
-                secret_path=mcp.status.secret_path,
-            )
+            await runtime["tunnel"].restart(runtime["entry_data"]())
 
     async def redownload_tunnel_client(call: "ServiceCall") -> None:
         for runtime in _matching_runtimes(hass, call):
-            mcp = runtime["mcp"]
-            if mcp.status.port is None or mcp.status.secret_path is None:
-                raise RuntimeError("ha-mcp is not running")
-            await runtime["tunnel"].redownload(
-                runtime["entry_data"](),
-                mcp_port=mcp.status.port,
-                secret_path=mcp.status.secret_path,
-            )
-
-    async def restart_mcp_server(call: "ServiceCall") -> None:
-        for runtime in _matching_runtimes(hass, call):
-            await runtime["mcp"].restart()
-            mcp = runtime["mcp"]
-            if mcp.status.port is None or mcp.status.secret_path is None:
-                raise RuntimeError("ha-mcp is not running")
-            await runtime["tunnel"].restart(
-                runtime["entry_data"](),
-                mcp_port=mcp.status.port,
-                secret_path=mcp.status.secret_path,
-            )
+            await runtime["tunnel"].redownload(runtime["entry_data"]())
 
     hass.services.async_register(DOMAIN, "restart_tunnel", restart_tunnel)
     hass.services.async_register(
         DOMAIN, "redownload_tunnel_client", redownload_tunnel_client
     )
-    hass.services.async_register(DOMAIN, "restart_mcp_server", restart_mcp_server)
     hass.data[DOMAIN]["_services_registered"] = True
 
 
