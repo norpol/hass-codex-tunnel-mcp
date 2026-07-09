@@ -1,0 +1,12 @@
+{
+  "domain": "hass_codex_tunnel_mcp",
+  "name": "OpenAI Tunnel for HA-MCP",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/openai/hass-codex-tunnel-mcp",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/openai/hass-codex-tunnel-mcp/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

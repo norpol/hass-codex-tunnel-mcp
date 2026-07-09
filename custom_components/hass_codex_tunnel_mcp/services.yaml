@@ -1,0 +1,27 @@
+restart_tunnel:
+  target:
+    entity:
+      integration: hass_codex_tunnel_mcp
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+redownload_tunnel_client:
+  target:
+    entity:
+      integration: hass_codex_tunnel_mcp
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+restart_mcp_server:
+  target:
+    entity:
+      integration: hass_codex_tunnel_mcp
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:

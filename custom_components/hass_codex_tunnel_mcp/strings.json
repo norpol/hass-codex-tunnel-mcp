@@ -1,0 +1,74 @@
+{
+  "title": "OpenAI Tunnel for HA-MCP",
+  "config": {
+    "step": {
+      "user": {
+        "title": "OpenAI Tunnel for HA-MCP",
+        "description": "Create or inspect a tunnel in OpenAI Platform Tunnels, then create a runtime key with Tunnels Read and Tunnels Use. After this integration is healthy, configure the ChatGPT/OpenAI connector to use the tunnel.",
+        "data": {
+          "tunnel_id": "Control-plane tunnel ID",
+          "api_key": "Runtime API key",
+          "control_plane_base_url": "Control-plane base URL",
+          "control_plane_path": "Control-plane path"
+        }
+      }
+    },
+    "error": {
+      "invalid_tunnel_id": "Tunnel IDs must look like tunnel_ followed by 32 lowercase hexadecimal characters.",
+      "missing_api_key": "Enter a runtime API key.",
+      "invalid_input": "Check the values and try again."
+    },
+    "abort": {
+      "already_configured": "This tunnel is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "OpenAI Tunnel for HA-MCP",
+        "description": "Update the tunnel ID, runtime API key, or non-default control-plane endpoint.",
+        "data": {
+          "tunnel_id": "Control-plane tunnel ID",
+          "api_key": "Runtime API key",
+          "control_plane_base_url": "Control-plane base URL",
+          "control_plane_path": "Control-plane path"
+        }
+      }
+    },
+    "error": {
+      "invalid_tunnel_id": "Tunnel IDs must look like tunnel_ followed by 32 lowercase hexadecimal characters.",
+      "missing_api_key": "Enter a runtime API key.",
+      "invalid_input": "Check the values and try again."
+    }
+  },
+  "issues": {
+    "unsupported_arch": {
+      "title": "Unsupported tunnel-client platform",
+      "description": "OpenAI Tunnel for HA-MCP only has pinned tunnel-client v0.0.10 downloads for Linux amd64 and Linux arm64. This host reported {platform}."
+    },
+    "startup_failed": {
+      "title": "OpenAI Tunnel for HA-MCP failed to start",
+      "description": "Startup failed with: {error}"
+    },
+    "binary_download_failed": {
+      "title": "tunnel-client download failed",
+      "description": "The pinned tunnel-client binary could not be downloaded or verified: {error}"
+    },
+    "ha_mcp_failed": {
+      "title": "HA-MCP failed to start",
+      "description": "The local HA-MCP server failed to start: {error}"
+    },
+    "tunnel_client_exited": {
+      "title": "tunnel-client exited",
+      "description": "The tunnel-client subprocess exited unexpectedly: {error}"
+    },
+    "invalid_credentials": {
+      "title": "Tunnel credentials were rejected",
+      "description": "Create a runtime API key with Tunnels Read and Tunnels Use, then update the integration options."
+    },
+    "readiness_timeout": {
+      "title": "Tunnel readiness timed out",
+      "description": "tunnel-client started but did not publish a healthy readiness URL in time."
+    }
+  }
+}
