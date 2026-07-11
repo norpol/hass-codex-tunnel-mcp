@@ -18,6 +18,7 @@ from .const import (
     CONF_TUNNEL_ID,
     TUNNEL_CLIENT_VERSION,
 )
+from .binary import is_clean_version
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ class TunnelManager:
         entry_data: Mapping[str, object],
         *,
         force_download: bool = False,
+        executable_override: Path | None = None,
     ) -> None:
         """Start tunnel-client."""
         await self.stop()
@@ -119,10 +121,17 @@ class TunnelManager:
         if health_file.exists():
             health_file.unlink()
 
-        executable = await self._maybe_await(self._executable_provider(force_download))
+        if executable_override is None:
+            executable = await self._maybe_await(
+                self._executable_provider(force_download)
+            )
+            executable_path = Path(executable)
+        else:
+            executable_path = Path(executable_override)
+        version = _version_from_executable(executable_path)
         tunnel_id = str(entry_data[CONF_TUNNEL_ID])
         command = build_tunnel_command(
-            Path(executable),
+            executable_path,
             TunnelCommandConfig(
                 tunnel_id=tunnel_id,
                 mcp_server_url=str(entry_data[CONF_HA_MCP_URL]),
@@ -143,7 +152,7 @@ class TunnelManager:
         ha_mcp_token = str(entry_data.get(CONF_HA_MCP_BEARER_TOKEN) or "").strip()
         if ha_mcp_token:
             env["HA_MCP_AUTH_HEADER"] = f"Bearer {ha_mcp_token}"
-        self.status = TunnelStatus(state="starting")
+        self.status = TunnelStatus(state="starting", version=version)
         self._notify()
         try:
             self._process = await asyncio.create_subprocess_exec(
@@ -153,11 +162,11 @@ class TunnelManager:
                 stderr=asyncio.subprocess.PIPE,
             )
         except Exception as err:
-            self.status = TunnelStatus(state="error", last_error=str(err))
+            self.status = TunnelStatus(state="error", version=version, last_error=str(err))
             self._notify()
             raise
 
-        self.status = TunnelStatus(state="running")
+        self.status = TunnelStatus(state="running", version=version)
         self._start_log_tasks()
         self._watch_task = asyncio.create_task(self._watch_process(health_file))
         self._notify()
@@ -197,6 +206,19 @@ class TunnelManager:
             entry_data,
             force_download=True,
         )
+
+    async def wait_until_healthy(self, timeout: float) -> bool:
+        """Wait for the current process to publish a healthy URL."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if self.status.healthy:
+                return True
+            if self._process is None:
+                return False
+            if self._process.returncode is not None:
+                return False
+            await asyncio.sleep(0.5)
+        return bool(self.status.healthy)
 
     async def _watch_process(self, health_file: Path) -> None:
         assert self._process is not None
@@ -266,3 +288,11 @@ class TunnelManager:
         if hasattr(value, "__await__"):
             return await value  # type: ignore[misc]
         return value
+
+
+def _version_from_executable(executable: Path) -> str:
+    """Infer the installed tunnel-client version from its directory."""
+    version = executable.parent.name
+    if is_clean_version(version):
+        return version
+    return TUNNEL_CLIENT_VERSION

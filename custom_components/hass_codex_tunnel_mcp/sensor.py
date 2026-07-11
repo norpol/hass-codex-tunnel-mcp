@@ -15,7 +15,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
-from .const import DOMAIN, NAME, TUNNEL_CLIENT_VERSION
+from .const import DOMAIN, NAME
 from .metrics import (
     TunnelClientStatusSummary,
     TunnelMetricsSummary,
@@ -228,8 +228,16 @@ class TunnelVersionSensor(BaseTunnelSensor):
 
     @property
     def native_value(self):
-        """Return pinned tunnel-client version."""
-        return TUNNEL_CLIENT_VERSION
+        """Return active tunnel-client version."""
+        return self.runtime["tunnel"].status.version
+
+    @property
+    def extra_state_attributes(self):
+        """Return updater status attributes."""
+        updater = self.runtime.get("updater")
+        if updater is None:
+            return {}
+        return _drop_empty_attributes(updater.state.as_attributes())
 
 
 class BaseTunnelMetricsSensor(CoordinatorEntity, SensorEntity):

@@ -11,9 +11,11 @@ CONF_HA_MCP_URL = "ha_mcp_url"
 CONF_HA_MCP_BEARER_TOKEN = "ha_mcp_bearer_token"
 CONF_CONTROL_PLANE_BASE_URL = "control_plane_base_url"
 CONF_CONTROL_PLANE_PATH = "control_plane_url_path"
+CONF_AUTO_UPDATE_TUNNEL_CLIENT = "auto_update_tunnel_client"
 
 DEFAULT_CONTROL_PLANE_BASE_URL = ""
 DEFAULT_CONTROL_PLANE_PATH = ""
+DEFAULT_AUTO_UPDATE_TUNNEL_CLIENT = True
 
 TUNNEL_CLIENT_VERSION = "v0.0.10"
 TUNNEL_ID_RE = r"^tunnel_[0-9a-f]{32}$"

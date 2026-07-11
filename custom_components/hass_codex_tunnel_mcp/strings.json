@@ -11,7 +11,8 @@
           "ha_mcp_url": "HA-MCP server URL",
           "ha_mcp_bearer_token": "Home Assistant access token",
           "control_plane_base_url": "Control-plane base URL",
-          "control_plane_url_path": "Control-plane URL path"
+          "control_plane_url_path": "Control-plane URL path",
+          "auto_update_tunnel_client": "Automatically update tunnel-client"
         }
       }
     },
@@ -31,14 +32,15 @@
     "step": {
       "init": {
         "title": "OpenAI Tunnel for HA-MCP",
-        "description": "Update the OpenAI tunnel ID, runtime API key, HA-MCP URL, optional HA-MCP bearer token, or non-default control-plane endpoint. Inspect tunnels at https://platform.openai.com/settings/organization/tunnels and runtime keys at https://platform.openai.com/settings/organization/api-keys. Use the same tunnel_... ID in the ChatGPT connector at https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins.",
+        "description": "Update the OpenAI tunnel ID, runtime API key, HA-MCP URL, optional HA-MCP bearer token, non-default control-plane endpoint, or tunnel-client auto-update setting. Auto-update checks once per day, only installs clean stable vX.Y.Z tunnel-client releases after they are at least 8 days old, verifies SHA256, and rolls back if the new client does not become ready. Inspect tunnels at https://platform.openai.com/settings/organization/tunnels and runtime keys at https://platform.openai.com/settings/organization/api-keys. Use the same tunnel_... ID in the ChatGPT connector at https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins.",
         "data": {
           "tunnel_id": "OpenAI tunnel ID",
           "api_key": "Runtime API key",
           "ha_mcp_url": "HA-MCP server URL",
           "ha_mcp_bearer_token": "Home Assistant access token",
           "control_plane_base_url": "Control-plane base URL",
-          "control_plane_url_path": "Control-plane URL path"
+          "control_plane_url_path": "Control-plane URL path",
+          "auto_update_tunnel_client": "Automatically update tunnel-client"
         }
       }
     },
@@ -87,6 +89,22 @@
     "readiness_timeout": {
       "title": "Tunnel readiness timed out",
       "description": "tunnel-client started but did not publish a healthy readiness URL in time."
+    },
+    "tunnel_client_unverified_release": {
+      "title": "tunnel-client update was not verified",
+      "description": "A tunnel-client update was skipped because the release asset could not be verified: {error}"
+    },
+    "tunnel_client_update_failed": {
+      "title": "tunnel-client update failed",
+      "description": "The tunnel-client updater could not complete an update: {error}"
+    },
+    "tunnel_client_rollback_failed": {
+      "title": "tunnel-client rollback failed",
+      "description": "The tunnel-client updater could not roll back to the previous known-good version: {error}"
+    },
+    "tunnel_client_active_binary_fallback": {
+      "title": "tunnel-client fell back to bundled version",
+      "description": "The configured active tunnel-client could not be used, so the integration fell back to the bundled version: {error}"
     }
   }
 }

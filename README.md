@@ -1,12 +1,12 @@
 # OpenAI Tunnel for HA-MCP
 
 A HACS custom integration that exposes an existing Home Assistant MCP server through
-`openai/tunnel-client` `v0.0.10`.
+`openai/tunnel-client`.
 
 The integration downloads the host-specific `tunnel-client` release binary on
-first run, verifies the pinned SHA256 digest, extracts it under
-`.hass_codex_tunnel_mcp/bin/v0.0.10/`, and supervises it as a Home Assistant
-subprocess.
+first run, verifies the SHA256 digest, extracts each version under
+`.hass_codex_tunnel_mcp/bin/<version>/`, and supervises it as a Home Assistant
+subprocess. The bundled pinned fallback and first install target is `v0.0.10`.
 
 ## Install with HACS
 
@@ -45,9 +45,32 @@ subprocess.
      Home Assistant through OAuth. That requires Home Assistant's browser-facing
      auth URLs to be reachable by the browser during login.
    - Optional control-plane base URL/URL path for non-default environments.
+   - Whether to automatically update `tunnel-client`.
 6. After the tunnel status entity reports ready, add the ChatGPT connector at
    <https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins>
    and use the same OpenAI tunnel ID.
+
+## tunnel-client Updates
+
+Automatic `tunnel-client` updates are enabled by default and can be disabled in
+the integration options. The updater checks GitHub once per day and only
+installs clean stable release tags like `v0.0.11`. Drafts, prereleases, and
+suffix build tags such as `v0.0.8--example` are skipped. New releases are held
+for at least 8 days before they are eligible, so a just-published release is
+reported as deferred instead of installed immediately.
+
+Each selected asset must match a SHA256 digest from the GitHub release metadata
+or `SHA256SUMS.txt` before it is installed. The updater starts the candidate
+binary first and only marks it active after the tunnel becomes ready. If the
+candidate does not become ready, the integration returns to the previous
+known-good version, records the failed version so automatic checks skip it, and
+raises a Home Assistant repair issue. Manual updates can still retry a failed
+eligible version.
+
+The `Tunnel-client version` sensor exposes updater attributes for the active
+version, previous known-good version, latest seen version, latest eligible
+version, deferred-until time, last check, last successful update, last error,
+and failed update versions.
 
 ## Runtime Behavior
 
@@ -88,6 +111,15 @@ Assistant because that UI exposes broader local admin functionality.
 
 - `hass_codex_tunnel_mcp.restart_tunnel`
 - `hass_codex_tunnel_mcp.redownload_tunnel_client`
+- `hass_codex_tunnel_mcp.check_tunnel_client_update`
+- `hass_codex_tunnel_mcp.update_tunnel_client`
+- `hass_codex_tunnel_mcp.rollback_tunnel_client`
+
+`check_tunnel_client_update` refreshes GitHub release status without installing
+anything. `update_tunnel_client` installs the latest eligible verified release
+and uses the same health-gated activation and rollback path as automatic
+updates. `rollback_tunnel_client` switches back to the previous known-good
+version when one is available.
 
 ## Development Checks
 

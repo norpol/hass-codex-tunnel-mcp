@@ -16,11 +16,13 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_AUTO_UPDATE_TUNNEL_CLIENT,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
     CONF_HA_MCP_BEARER_TOKEN,
     CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
+    DEFAULT_AUTO_UPDATE_TUNNEL_CLIENT,
     DEFAULT_CONTROL_PLANE_BASE_URL,
     DEFAULT_CONTROL_PLANE_PATH,
     DOMAIN,
@@ -55,6 +57,13 @@ def build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                 CONF_CONTROL_PLANE_PATH,
                 default=defaults.get(CONF_CONTROL_PLANE_PATH, DEFAULT_CONTROL_PLANE_PATH),
             ): str,
+            vol.Optional(
+                CONF_AUTO_UPDATE_TUNNEL_CLIENT,
+                default=defaults.get(
+                    CONF_AUTO_UPDATE_TUNNEL_CLIENT,
+                    DEFAULT_AUTO_UPDATE_TUNNEL_CLIENT,
+                ),
+            ): bool,
         }
     )
 

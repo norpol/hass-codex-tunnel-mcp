@@ -6,12 +6,14 @@ import re
 from typing import Any
 
 from .const import (
+    CONF_AUTO_UPDATE_TUNNEL_CLIENT,
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
     CONF_HA_MCP_BEARER_TOKEN,
     CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
+    DEFAULT_AUTO_UPDATE_TUNNEL_CLIENT,
     TUNNEL_ID_RE,
 )
 from .mcp_url import MCPUrlError, normalize_mcp_url
@@ -64,5 +66,10 @@ def normalize_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
         ),
         CONF_CONTROL_PLANE_PATH: normalize_optional_url(
             user_input.get(CONF_CONTROL_PLANE_PATH)
+        ),
+        CONF_AUTO_UPDATE_TUNNEL_CLIENT: bool(
+            user_input.get(
+                CONF_AUTO_UPDATE_TUNNEL_CLIENT, DEFAULT_AUTO_UPDATE_TUNNEL_CLIENT
+            )
         ),
     }

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant, ServiceCall
 
-from .binary import TunnelClientError, UnsupportedPlatformError, ensure_tunnel_client
+from .binary import TunnelClientError, UnsupportedPlatformError
 from .const import (
     BIN_DIR_NAME,
     CONF_HA_MCP_BEARER_TOKEN,
@@ -23,6 +23,7 @@ from .const import (
 from .mcp_url import MCPUrlError, assess_mcp_url, async_probe_mcp_url
 from .repairs import create_issue, delete_issue
 from .tunnel import TunnelManager
+from .updater import TunnelClientUpdater
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,12 +43,16 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
             for callback in runtime.get("listeners", []):
                 callback()
 
+    updater = TunnelClientUpdater(hass, entry, bin_root, notify)
+    await updater.async_load()
+
     async def executable_provider(force: bool):
-        return await ensure_tunnel_client(bin_root, force=force)
+        return await updater.ensure_active_executable(force=force)
 
     tunnel = TunnelManager(executable_provider, run_dir, notify)
     hass.data[DOMAIN][entry.entry_id] = {
         "tunnel": tunnel,
+        "updater": updater,
         "listeners": [],
         "entry_data": _entry_data_factory(entry),
     }
@@ -112,6 +117,7 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
     await delete_issue(hass, "mcp_url_unreachable")
     await _async_register_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await updater.async_start_auto_update(tunnel, _entry_data_factory(entry))
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
@@ -143,9 +149,32 @@ async def _async_register_services(hass: "HomeAssistant") -> None:
         for runtime in _matching_runtimes(hass, call):
             await runtime["tunnel"].redownload(runtime["entry_data"]())
 
+    async def check_tunnel_client_update(call: "ServiceCall") -> None:
+        for runtime in _matching_runtimes(hass, call):
+            await runtime["updater"].async_check_for_update()
+
+    async def update_tunnel_client(call: "ServiceCall") -> None:
+        for runtime in _matching_runtimes(hass, call):
+            await runtime["updater"].async_update_tunnel_client(
+                runtime["tunnel"], runtime["entry_data"]()
+            )
+
+    async def rollback_tunnel_client(call: "ServiceCall") -> None:
+        for runtime in _matching_runtimes(hass, call):
+            await runtime["updater"].async_rollback(
+                runtime["tunnel"], runtime["entry_data"]()
+            )
+
     hass.services.async_register(DOMAIN, "restart_tunnel", restart_tunnel)
     hass.services.async_register(
         DOMAIN, "redownload_tunnel_client", redownload_tunnel_client
+    )
+    hass.services.async_register(
+        DOMAIN, "check_tunnel_client_update", check_tunnel_client_update
+    )
+    hass.services.async_register(DOMAIN, "update_tunnel_client", update_tunnel_client)
+    hass.services.async_register(
+        DOMAIN, "rollback_tunnel_client", rollback_tunnel_client
     )
     hass.data[DOMAIN]["_services_registered"] = True
 

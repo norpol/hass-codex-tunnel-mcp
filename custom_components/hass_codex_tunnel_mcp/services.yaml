@@ -16,3 +16,30 @@ redownload_tunnel_client:
       required: false
       selector:
         text:
+check_tunnel_client_update:
+  target:
+    entity:
+      integration: hass_codex_tunnel_mcp
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+update_tunnel_client:
+  target:
+    entity:
+      integration: hass_codex_tunnel_mcp
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+rollback_tunnel_client:
+  target:
+    entity:
+      integration: hass_codex_tunnel_mcp
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
