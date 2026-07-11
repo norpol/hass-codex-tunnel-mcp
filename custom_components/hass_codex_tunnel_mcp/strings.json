@@ -4,9 +4,9 @@
     "step": {
       "user": {
         "title": "OpenAI Tunnel for HA-MCP",
-        "description": "Enable Home Assistant's MCP Server integration, then paste its local/direct MCP URL, normally http://homeassistant.local:8123/api/mcp. Create or inspect a tunnel in OpenAI Platform Tunnels, then create a runtime key with Tunnels Read and Tunnels Use. For private Home Assistant OAuth, use a Home Assistant long-lived access token here and configure the ChatGPT app as No Auth.",
+        "description": "Enable Home Assistant's MCP Server integration, then paste its local/direct MCP URL, normally http://homeassistant.local:8123/api/mcp. Create or inspect your OpenAI tunnel at https://platform.openai.com/settings/organization/tunnels. The OpenAI tunnel ID is the tunnel_... value from that page; it identifies the OpenAI-hosted tunnel endpoint that this Home Assistant integration and ChatGPT both attach to. It is not the runtime API key, Home Assistant token, or MCP URL. Create a runtime API key at https://platform.openai.com/settings/organization/api-keys with Tunnels Read and Tunnels Use. For private Home Assistant OAuth, use a Home Assistant long-lived access token here and configure the ChatGPT connector as No Auth. After this integration reports ready, add the ChatGPT connector at https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins.",
         "data": {
-          "tunnel_id": "Control-plane tunnel ID",
+          "tunnel_id": "OpenAI tunnel ID",
           "api_key": "Runtime API key",
           "ha_mcp_url": "HA-MCP server URL",
           "ha_mcp_bearer_token": "Home Assistant access token",
@@ -31,9 +31,9 @@
     "step": {
       "init": {
         "title": "OpenAI Tunnel for HA-MCP",
-        "description": "Update the tunnel ID, runtime API key, HA-MCP URL, optional HA-MCP bearer token, or non-default control-plane endpoint.",
+        "description": "Update the OpenAI tunnel ID, runtime API key, HA-MCP URL, optional HA-MCP bearer token, or non-default control-plane endpoint. Inspect tunnels at https://platform.openai.com/settings/organization/tunnels and runtime keys at https://platform.openai.com/settings/organization/api-keys. Use the same tunnel_... ID in the ChatGPT connector at https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins.",
         "data": {
-          "tunnel_id": "Control-plane tunnel ID",
+          "tunnel_id": "OpenAI tunnel ID",
           "api_key": "Runtime API key",
           "ha_mcp_url": "HA-MCP server URL",
           "ha_mcp_bearer_token": "Home Assistant access token",

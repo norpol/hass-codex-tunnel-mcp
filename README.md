@@ -22,13 +22,20 @@ subprocess.
 2. Use the local/direct MCP URL, normally
    `http://homeassistant.local:8123/api/mcp` or
    `http://127.0.0.1:8123/api/mcp` when this integration runs on the HA host.
-3. Create or inspect a tunnel in OpenAI Platform Tunnels.
-4. Create a runtime API key with **Tunnels Read** and **Tunnels Use**.
+3. Create or inspect a tunnel in
+   [OpenAI Platform Tunnels](https://platform.openai.com/settings/organization/tunnels).
+4. Create a runtime API key in
+   [OpenAI Platform API keys](https://platform.openai.com/settings/organization/api-keys)
+   with **Tunnels Read** and **Tunnels Use**.
 5. Configure this integration with:
-   - `CONTROL_PLANE_TUNNEL_ID`, formatted as `tunnel_` followed by 32 lowercase
-     hex characters.
-   - The runtime API key. This is stored in the Home Assistant config entry and
-     passed to `tunnel-client` as `env:CONTROL_PLANE_API_KEY`.
+   - The OpenAI tunnel ID, formatted as `tunnel_` followed by 32 lowercase hex
+     characters. This value comes from the Platform Tunnels page and identifies
+     the OpenAI-hosted tunnel endpoint that both this Home Assistant integration
+     and ChatGPT attach to. It is not the runtime API key, Home Assistant token,
+     or MCP URL.
+   - The runtime API key. This is stored in the Home Assistant config entry,
+     masked in the setup UI, and passed to `tunnel-client` as
+     `env:CONTROL_PLANE_API_KEY`.
    - The HA-MCP server URL, such as `http://127.0.0.1:8123/api/mcp`.
    - Optionally, a Home Assistant long-lived access token. When set, the
      integration passes it to `tunnel-client` as
@@ -38,8 +45,9 @@ subprocess.
      Home Assistant through OAuth. That requires Home Assistant's browser-facing
      auth URLs to be reachable by the browser during login.
    - Optional control-plane base URL/URL path for non-default environments.
-6. After the tunnel status entity reports ready, configure the ChatGPT app to use
-   the tunnel.
+6. After the tunnel status entity reports ready, add the ChatGPT connector at
+   <https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins>
+   and use the same OpenAI tunnel ID.
 
 ## Runtime Behavior
 
