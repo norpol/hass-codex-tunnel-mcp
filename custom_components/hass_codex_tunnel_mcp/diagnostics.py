@@ -5,7 +5,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_API_KEY, CONF_HA_MCP_URL, DOMAIN
+from .const import CONF_API_KEY, CONF_HA_MCP_BEARER_TOKEN, CONF_HA_MCP_URL, DOMAIN
 from .mcp_url import redact_mcp_url
 
 
@@ -17,6 +17,8 @@ async def async_get_config_entry_diagnostics(
     data = {**entry.data, **entry.options}
     if CONF_API_KEY in data:
         data[CONF_API_KEY] = "**REDACTED**"
+    if CONF_HA_MCP_BEARER_TOKEN in data:
+        data[CONF_HA_MCP_BEARER_TOKEN] = "**REDACTED**"
     if CONF_HA_MCP_URL in data:
         data[CONF_HA_MCP_URL] = redact_mcp_url(str(data[CONF_HA_MCP_URL]))
 

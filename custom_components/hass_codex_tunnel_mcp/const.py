@@ -8,6 +8,7 @@ NAME = "OpenAI Tunnel for HA-MCP"
 CONF_TUNNEL_ID = "tunnel_id"
 CONF_API_KEY = "api_key"
 CONF_HA_MCP_URL = "ha_mcp_url"
+CONF_HA_MCP_BEARER_TOKEN = "ha_mcp_bearer_token"
 CONF_CONTROL_PLANE_BASE_URL = "control_plane_base_url"
 CONF_CONTROL_PLANE_PATH = "control_plane_url_path"
 

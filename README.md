@@ -1,6 +1,6 @@
 # OpenAI Tunnel for HA-MCP
 
-A HACS custom integration that exposes an existing HA-MCP server through
+A HACS custom integration that exposes an existing Home Assistant MCP server through
 `openai/tunnel-client` `v0.0.10`.
 
 The integration downloads the host-specific `tunnel-client` release binary on
@@ -18,8 +18,10 @@ subprocess.
 
 ## OpenAI Setup
 
-1. Install and start the upstream HA-MCP custom component or add-on.
-2. Copy its local/direct MCP URL, including the secret path.
+1. Enable Home Assistant's **MCP Server** integration.
+2. Use the local/direct MCP URL, normally
+   `http://homeassistant.local:8123/api/mcp` or
+   `http://127.0.0.1:8123/api/mcp` when this integration runs on the HA host.
 3. Create or inspect a tunnel in OpenAI Platform Tunnels.
 4. Create a runtime API key with **Tunnels Read** and **Tunnels Use**.
 5. Configure this integration with:
@@ -27,11 +29,17 @@ subprocess.
      hex characters.
    - The runtime API key. This is stored in the Home Assistant config entry and
      passed to `tunnel-client` as `env:CONTROL_PLANE_API_KEY`.
-   - The HA-MCP server URL, such as
-     `http://127.0.0.1:9584/private_<random>`.
+   - The HA-MCP server URL, such as `http://127.0.0.1:8123/api/mcp`.
+   - Optionally, a Home Assistant long-lived access token. When set, the
+     integration passes it to `tunnel-client` as
+     `Authorization: Bearer <token>` via `env:HA_MCP_AUTH_HEADER`, not via
+     process arguments. In ChatGPT, configure the app as **No Auth**.
+   - If you leave the Home Assistant token blank, ChatGPT must authenticate to
+     Home Assistant through OAuth. That requires Home Assistant's browser-facing
+     auth URLs to be reachable by the browser during login.
    - Optional control-plane base URL/URL path for non-default environments.
-6. After the tunnel status entity reports ready, configure the ChatGPT/OpenAI
-   connector to use the tunnel.
+6. After the tunnel status entity reports ready, configure the ChatGPT app to use
+   the tunnel.
 
 ## Runtime Behavior
 
@@ -42,6 +50,8 @@ tunnel-client run \
   --control-plane.tunnel-id <id> \
   --control-plane.api-key env:CONTROL_PLANE_API_KEY \
   --mcp.server-url channel=main,url=<ha-mcp-url> \
+  [--mcp.extra-headers "Authorization: env:HA_MCP_AUTH_HEADER"] \
+  [--mcp.discovery-extra-headers "Authorization: env:HA_MCP_AUTH_HEADER"] \
   --health.listen-addr 127.0.0.1:0 \
   --health.url-file <integration-run-dir>/health.url
 ```

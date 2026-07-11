@@ -13,6 +13,7 @@ from .const import (
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
+    CONF_HA_MCP_BEARER_TOKEN,
     CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
     TUNNEL_CLIENT_VERSION,
@@ -30,6 +31,7 @@ class TunnelCommandConfig:
     run_dir: Path
     control_plane_base_url: str = ""
     control_plane_url_path: str = ""
+    use_ha_mcp_bearer_token: bool = False
 
 
 def build_mcp_server_url(url: str) -> str:
@@ -58,6 +60,15 @@ def build_tunnel_command(executable: Path, config: TunnelCommandConfig) -> list[
         command.extend(["--control-plane.base-url", config.control_plane_base_url])
     if config.control_plane_url_path:
         command.extend(["--control-plane.url-path", config.control_plane_url_path])
+    if config.use_ha_mcp_bearer_token:
+        command.extend(
+            [
+                "--mcp.extra-headers",
+                "Authorization: env:HA_MCP_AUTH_HEADER",
+                "--mcp.discovery-extra-headers",
+                "Authorization: env:HA_MCP_AUTH_HEADER",
+            ]
+        )
     return command
 
 
@@ -122,10 +133,16 @@ class TunnelManager:
                 control_plane_url_path=str(
                     entry_data.get(CONF_CONTROL_PLANE_PATH) or ""
                 ),
+                use_ha_mcp_bearer_token=bool(
+                    str(entry_data.get(CONF_HA_MCP_BEARER_TOKEN) or "").strip()
+                ),
             ),
         )
         env = os.environ.copy()
         env["CONTROL_PLANE_API_KEY"] = str(entry_data[CONF_API_KEY])
+        ha_mcp_token = str(entry_data.get(CONF_HA_MCP_BEARER_TOKEN) or "").strip()
+        if ha_mcp_token:
+            env["HA_MCP_AUTH_HEADER"] = f"Bearer {ha_mcp_token}"
         self.status = TunnelStatus(state="starting")
         self._notify()
         try:

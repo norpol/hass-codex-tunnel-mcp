@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 from .binary import TunnelClientError, UnsupportedPlatformError, ensure_tunnel_client
 from .const import (
     BIN_DIR_NAME,
+    CONF_HA_MCP_BEARER_TOKEN,
     CONF_HA_MCP_URL,
     DOMAIN,
     PLATFORMS,
@@ -53,10 +54,12 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
 
     try:
         try:
-            assessment = assess_mcp_url(
-                str({**entry.data, **entry.options}[CONF_HA_MCP_URL])
+            entry_data = {**entry.data, **entry.options}
+            assessment = assess_mcp_url(str(entry_data[CONF_HA_MCP_URL]))
+            await async_probe_mcp_url(
+                assessment.url,
+                bearer_token=str(entry_data.get(CONF_HA_MCP_BEARER_TOKEN) or ""),
             )
-            await async_probe_mcp_url(assessment.url)
         except MCPUrlError as err:
             await create_issue(
                 hass,

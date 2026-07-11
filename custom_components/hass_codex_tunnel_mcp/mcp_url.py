@@ -84,18 +84,23 @@ def assess_mcp_url(value: str) -> MCPUrlAssessment:
     )
 
 
-async def async_probe_mcp_url(value: str, timeout: float = 5.0) -> None:
+async def async_probe_mcp_url(
+    value: str, timeout: float = 5.0, bearer_token: str = ""
+) -> None:
     """Probe the configured HA-MCP URL for basic reachability."""
-    await asyncio.to_thread(_probe_mcp_url, value, timeout)
+    await asyncio.to_thread(_probe_mcp_url, value, timeout, bearer_token)
 
 
-def _probe_mcp_url(value: str, timeout: float) -> None:
-    request = Request(value, method="GET", headers={"User-Agent": "hass-codex-tunnel-mcp"})
+def _probe_mcp_url(value: str, timeout: float, bearer_token: str = "") -> None:
+    headers = {"User-Agent": "hass-codex-tunnel-mcp"}
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+    request = Request(value, method="GET", headers=headers)
     try:
         with urlopen(request, timeout=timeout) as response:
             _validate_probe_response(response)
     except HTTPError as err:
-        if err.code >= 500:
+        if err.code == 404 or err.code >= 500:
             raise MCPUrlError("mcp_probe_failed") from err
     except (TimeoutError, OSError, URLError) as err:
         raise MCPUrlError("mcp_probe_failed") from err

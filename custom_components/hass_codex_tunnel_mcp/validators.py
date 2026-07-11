@@ -9,6 +9,7 @@ from .const import (
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
+    CONF_HA_MCP_BEARER_TOKEN,
     CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
     TUNNEL_ID_RE,
@@ -37,6 +38,11 @@ def normalize_optional_url(value: str | None) -> str:
     return (value or "").strip()
 
 
+def normalize_optional_secret(value: str | None) -> str:
+    """Normalize optional secret fields."""
+    return (value or "").strip()
+
+
 def normalize_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
     """Normalize and validate flow input."""
     api_key = str(user_input[CONF_API_KEY]).strip()
@@ -50,6 +56,9 @@ def normalize_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
         CONF_TUNNEL_ID: validate_tunnel_id(str(user_input[CONF_TUNNEL_ID])),
         CONF_API_KEY: api_key,
         CONF_HA_MCP_URL: mcp_url,
+        CONF_HA_MCP_BEARER_TOKEN: normalize_optional_secret(
+            user_input.get(CONF_HA_MCP_BEARER_TOKEN)
+        ),
         CONF_CONTROL_PLANE_BASE_URL: normalize_optional_url(
             user_input.get(CONF_CONTROL_PLANE_BASE_URL)
         ),

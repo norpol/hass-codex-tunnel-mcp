@@ -13,6 +13,7 @@ from homeassistant.core import callback
 from .const import (
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
+    CONF_HA_MCP_BEARER_TOKEN,
     CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
     DEFAULT_CONTROL_PLANE_BASE_URL,
@@ -31,6 +32,10 @@ def build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             vol.Required(CONF_TUNNEL_ID, default=defaults.get(CONF_TUNNEL_ID, "")): str,
             vol.Required(CONF_API_KEY, default=defaults.get(CONF_API_KEY, "")): str,
             vol.Required(CONF_HA_MCP_URL, default=defaults.get(CONF_HA_MCP_URL, "")): str,
+            vol.Optional(
+                CONF_HA_MCP_BEARER_TOKEN,
+                default=defaults.get(CONF_HA_MCP_BEARER_TOKEN, ""),
+            ): str,
             vol.Optional(
                 CONF_CONTROL_PLANE_BASE_URL,
                 default=defaults.get(

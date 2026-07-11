@@ -6,6 +6,7 @@ from custom_components.hass_codex_tunnel_mcp.const import (
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
+    CONF_HA_MCP_BEARER_TOKEN,
     CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
 )
@@ -21,6 +22,7 @@ def test_normalize_user_input_accepts_valid_tunnel_id() -> None:
             CONF_TUNNEL_ID: " tunnel_0123456789abcdef0123456789abcdef ",
             CONF_API_KEY: " key ",
             CONF_HA_MCP_URL: " http://127.0.0.1:9584/private_secret/ ",
+            CONF_HA_MCP_BEARER_TOKEN: " ha-token ",
             CONF_CONTROL_PLANE_BASE_URL: " https://example.test ",
             CONF_CONTROL_PLANE_PATH: " /v1 ",
         }
@@ -30,6 +32,7 @@ def test_normalize_user_input_accepts_valid_tunnel_id() -> None:
         CONF_TUNNEL_ID: "tunnel_0123456789abcdef0123456789abcdef",
         CONF_API_KEY: "key",
         CONF_HA_MCP_URL: "http://127.0.0.1:9584/private_secret",
+        CONF_HA_MCP_BEARER_TOKEN: "ha-token",
         CONF_CONTROL_PLANE_BASE_URL: "https://example.test",
         CONF_CONTROL_PLANE_PATH: "/v1",
     }

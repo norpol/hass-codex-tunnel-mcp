@@ -7,6 +7,7 @@ from custom_components.hass_codex_tunnel_mcp.const import (
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
     CONF_CONTROL_PLANE_PATH,
+    CONF_HA_MCP_BEARER_TOKEN,
     CONF_HA_MCP_URL,
     CONF_TUNNEL_ID,
 )
@@ -52,6 +53,23 @@ def test_build_tunnel_command_includes_required_flags(tmp_path: Path) -> None:
     assert "/v1" in command
 
 
+def test_build_tunnel_command_uses_env_backed_ha_token_header(tmp_path: Path) -> None:
+    command = build_tunnel_command(
+        tmp_path / "tunnel-client",
+        TunnelCommandConfig(
+            tunnel_id="tunnel_0123456789abcdef0123456789abcdef",
+            mcp_server_url="http://127.0.0.1:8123/api/mcp",
+            run_dir=tmp_path,
+            use_ha_mcp_bearer_token=True,
+        ),
+    )
+
+    assert "--mcp.extra-headers" in command
+    assert "--mcp.discovery-extra-headers" in command
+    assert command.count("Authorization: env:HA_MCP_AUTH_HEADER") == 2
+    assert not any("Bearer" in arg for arg in command)
+
+
 def test_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None:
     asyncio.run(_run_tunnel_manager_lifecycle_with_fake_client(tmp_path))
 
@@ -79,6 +97,7 @@ async def _run_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None
             CONF_TUNNEL_ID: "tunnel_0123456789abcdef0123456789abcdef",
             CONF_API_KEY: "runtime-key",
             CONF_HA_MCP_URL: "http://127.0.0.1:9584/private_secret",
+            CONF_HA_MCP_BEARER_TOKEN: "",
             CONF_CONTROL_PLANE_BASE_URL: "",
             CONF_CONTROL_PLANE_PATH: "",
         }

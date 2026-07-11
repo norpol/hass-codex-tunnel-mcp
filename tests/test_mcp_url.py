@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from custom_components.hass_codex_tunnel_mcp.mcp_url import (
     assess_mcp_url,
+    normalize_mcp_url,
     redact_mcp_url,
 )
 
@@ -18,6 +19,13 @@ def test_assess_mcp_url_allows_loopback() -> None:
 
     assert assessment.is_local_or_private is True
     assert assessment.warning is None
+
+
+def test_normalize_mcp_url_allows_home_assistant_api_mcp_path() -> None:
+    assert (
+        normalize_mcp_url("http://127.0.0.1:8123/api/mcp/")
+        == "http://127.0.0.1:8123/api/mcp"
+    )
 
 
 def test_assess_mcp_url_warns_on_public_url() -> None:
