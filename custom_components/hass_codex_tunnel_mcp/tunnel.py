@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
+import signal
+import time
 
 from .const import (
     CONF_API_KEY,
@@ -116,10 +118,9 @@ class TunnelManager:
     ) -> None:
         """Start tunnel-client."""
         await self.stop()
-        self._run_dir.mkdir(parents=True, exist_ok=True)
         health_file = self._run_dir / "health.url"
-        if health_file.exists():
-            health_file.unlink()
+        await asyncio.to_thread(_prepare_run_dir, self._run_dir, health_file)
+        await asyncio.to_thread(_terminate_stale_tunnel_clients, health_file)
 
         if executable_override is None:
             executable = await self._maybe_await(
@@ -273,14 +274,13 @@ class TunnelManager:
 
     async def _watch_health_file(self, health_file: Path) -> None:
         while True:
-            if health_file.exists():
-                text = health_file.read_text(encoding="utf-8").strip()
-                if text:
-                    self.status.health_url = text
-                    self.status.healthy = True
-                    self.status.state = "healthy"
-                    self._notify()
-                    return
+            text = await asyncio.to_thread(_read_health_url, health_file)
+            if text:
+                self.status.health_url = text
+                self.status.healthy = True
+                self.status.state = "healthy"
+                self._notify()
+                return
             await asyncio.sleep(0.5)
 
     @staticmethod
@@ -296,3 +296,83 @@ def _version_from_executable(executable: Path) -> str:
     if is_clean_version(version):
         return version
     return TUNNEL_CLIENT_VERSION
+
+
+def _read_health_url(health_file: Path) -> str:
+    """Read the health URL outside the event loop."""
+    if not health_file.exists():
+        return ""
+    return health_file.read_text(encoding="utf-8").strip()
+
+
+def _prepare_run_dir(run_dir: Path, health_file: Path) -> None:
+    """Create the run directory and remove stale health state."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        health_file.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _terminate_stale_tunnel_clients(health_file: Path) -> None:
+    """Terminate orphaned tunnel-client processes for this entry."""
+    target = str(health_file)
+    matches: list[int] = []
+    proc_root = Path("/proc")
+    if not proc_root.exists():
+        return
+
+    for cmdline_path in proc_root.glob("[0-9]*/cmdline"):
+        try:
+            pid = int(cmdline_path.parent.name)
+            if pid == os.getpid():
+                continue
+            raw_cmdline = cmdline_path.read_bytes()
+        except (OSError, ValueError):
+            continue
+        args = [
+            part.decode(errors="replace")
+            for part in raw_cmdline.split(b"\0")
+            if part
+        ]
+        if not args or not _is_tunnel_client_command(args):
+            continue
+        try:
+            health_arg = args.index("--health.url-file")
+        except ValueError:
+            continue
+        if health_arg + 1 < len(args) and args[health_arg + 1] == target:
+            matches.append(pid)
+
+    for pid in matches:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError as err:
+            _LOGGER.debug("Could not terminate stale tunnel-client %s: %s", pid, err)
+
+    if matches:
+        time.sleep(2)
+
+    for pid in matches:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        except OSError:
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError as err:
+            _LOGGER.debug("Could not kill stale tunnel-client %s: %s", pid, err)
+
+    if matches:
+        _LOGGER.info("Terminated %d stale tunnel-client process(es)", len(matches))
+
+
+def _is_tunnel_client_command(args: list[str]) -> bool:
+    """Return whether argv belongs to a tunnel-client process."""
+    return any(Path(arg).name == "tunnel-client" for arg in args[:2])

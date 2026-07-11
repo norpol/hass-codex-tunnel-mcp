@@ -14,6 +14,7 @@ from custom_components.hass_codex_tunnel_mcp.const import (
 from custom_components.hass_codex_tunnel_mcp.tunnel import (
     TunnelCommandConfig,
     TunnelManager,
+    _read_health_url,
     build_mcp_server_url,
     build_tunnel_command,
 )
@@ -74,6 +75,20 @@ def test_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None:
     asyncio.run(_run_tunnel_manager_lifecycle_with_fake_client(tmp_path))
 
 
+def test_tunnel_manager_cleans_up_stale_client(tmp_path: Path) -> None:
+    asyncio.run(_run_tunnel_manager_cleans_up_stale_client(tmp_path))
+
+
+def test_read_health_url(tmp_path: Path) -> None:
+    health_file = tmp_path / "health.url"
+
+    assert _read_health_url(health_file) == ""
+
+    health_file.write_text("http://127.0.0.1:9\n", encoding="utf-8")
+
+    assert _read_health_url(health_file) == "http://127.0.0.1:9"
+
+
 async def _run_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None:
     fake_client = tmp_path / "tunnel-client"
     fake_client.write_text(
@@ -113,3 +128,46 @@ async def _run_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None
 
     await manager.stop()
     assert manager.status.state == "stopped"
+
+
+async def _run_tunnel_manager_cleans_up_stale_client(tmp_path: Path) -> None:
+    fake_client = tmp_path / "tunnel-client"
+    fake_client.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, sys, time\n"
+        "health_file = pathlib.Path(sys.argv[sys.argv.index('--health.url-file') + 1])\n"
+        "health_file.write_text('http://127.0.0.1:9/health')\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    fake_client.chmod(0o755)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    health_file = run_dir / "health.url"
+    stale = await asyncio.create_subprocess_exec(
+        str(fake_client),
+        "run",
+        "--health.url-file",
+        str(health_file),
+    )
+    for _ in range(20):
+        if health_file.exists():
+            break
+        await asyncio.sleep(0.1)
+
+    manager = TunnelManager(lambda force: fake_client, run_dir)
+    await manager.start(
+        {
+            CONF_TUNNEL_ID: "tunnel_0123456789abcdef0123456789abcdef",
+            CONF_API_KEY: "runtime-key",
+            CONF_HA_MCP_URL: "http://127.0.0.1:9584/private_secret",
+            CONF_HA_MCP_BEARER_TOKEN: "",
+            CONF_CONTROL_PLANE_BASE_URL: "",
+            CONF_CONTROL_PLANE_PATH: "",
+        }
+    )
+
+    await asyncio.wait_for(stale.wait(), timeout=5)
+    assert stale.returncode is not None
+
+    await manager.stop()
