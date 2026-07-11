@@ -72,6 +72,17 @@ supported initially. Other platforms create a Home Assistant repair issue.
 - Tunnel process state
 - Tunnel ready state
 - Installed `tunnel-client` version
+- Tunnel MCP requests
+- Tunnel MCP average latency
+- Tunnel MCP errors
+- Tunnel upstream requests
+
+The metrics entities summarize the local `tunnel-client` `/metrics` and
+`/api/status` endpoints. They intentionally omit Go runtime/process/promhttp
+internals, raw histogram buckets, raw logs, mutable admin endpoints, API keys,
+and Home Assistant bearer tokens. The integration reports whether the local
+`tunnel-client` UI is available, but does not iframe or proxy it into Home
+Assistant because that UI exposes broader local admin functionality.
 
 ## Services
 
