@@ -3,23 +3,32 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
 import logging
+from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 
 from .const import DOMAIN, NAME
+from .health import TunnelHealthSummary, summarize_health_payload
 from .metrics import (
     TunnelClientStatusSummary,
-    TunnelMetricsSummary,
     TunnelMetricsSnapshot,
+    TunnelMetricsSummary,
     derive_tunnel_endpoint_urls,
     parse_tunnel_metrics,
     summarize_status_payload,
@@ -29,6 +38,54 @@ _LOGGER = logging.getLogger(__name__)
 
 SCAN_INTERVAL = timedelta(seconds=60)
 FETCH_TIMEOUT = 5
+
+
+@dataclass(frozen=True, kw_only=True)
+class TunnelHealthSensorDescription(SensorEntityDescription):
+    """One selected health component value and its diagnostic attributes."""
+
+    component: str
+    field: str | None = None
+
+
+HEALTH_SENSORS = (
+    TunnelHealthSensorDescription(
+        key="tunnel_control_plane",
+        name="Tunnel control plane",
+        component="control-plane",
+    ),
+    TunnelHealthSensorDescription(
+        key="tunnel_mcp_health", name="Tunnel MCP health", component="mcp"
+    ),
+    TunnelHealthSensorDescription(
+        key="tunnel_active_requests",
+        name="Tunnel active requests",
+        component="dispatcher",
+        field="active",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    TunnelHealthSensorDescription(
+        key="tunnel_queue_depth",
+        name="Tunnel queue depth",
+        component="queue",
+        field="depth",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    TunnelHealthSensorDescription(
+        key="tunnel_delivery_retries",
+        name="Tunnel delivery retries",
+        component="response-delivery",
+        field="retries",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    TunnelHealthSensorDescription(
+        key="tunnel_delivery_failures",
+        name="Tunnel delivery failures",
+        component="response-delivery",
+        field="terminal_failures",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+)
 
 
 async def async_setup_entry(
@@ -41,6 +98,7 @@ async def async_setup_entry(
         coordinator = TunnelMetricsCoordinator(hass, entry)
         runtime["metrics_coordinator"] = coordinator
     if "metrics_refresh_listener" not in runtime:
+
         @callback
         def _refresh_metrics() -> None:
             hass.async_create_task(coordinator.async_request_refresh())
@@ -58,6 +116,10 @@ async def async_setup_entry(
             TunnelMCPLatencySensor(coordinator, entry),
             TunnelMCPErrorsSensor(coordinator, entry),
             TunnelUpstreamRequestsSensor(coordinator, entry),
+            *[
+                TunnelHealthSensor(coordinator, entry, description)
+                for description in HEALTH_SENSORS
+            ],
         ]
     )
 
@@ -86,6 +148,7 @@ class TunnelMetricsCoordinator(DataUpdateCoordinator):
             return TunnelMetricsSnapshot(
                 metrics_error="Tunnel health URL is not available",
                 status_error="Tunnel health URL is not available",
+                health_error="Tunnel health URL is not available",
             )
 
         session = async_get_clientsession(self.hass)
@@ -94,6 +157,8 @@ class TunnelMetricsCoordinator(DataUpdateCoordinator):
         local_ui_available = False
         metrics = None
         status_summary = None
+        health_summary = TunnelHealthSummary()
+        health_error = None
 
         try:
             metrics_text = await _fetch_text(session, endpoints.metrics_url)
@@ -108,6 +173,12 @@ class TunnelMetricsCoordinator(DataUpdateCoordinator):
             status_error = str(err)
 
         try:
+            health_payload = await _fetch_json(session, endpoints.health_details_url)
+            health_summary = summarize_health_payload(health_payload)
+        except Exception as err:  # noqa: BLE001
+            health_error = str(err)
+
+        try:
             local_ui_available = await _endpoint_exists(session, endpoints.ui_url)
         except Exception:  # noqa: BLE001
             local_ui_available = False
@@ -119,6 +190,8 @@ class TunnelMetricsCoordinator(DataUpdateCoordinator):
             local_ui_available=local_ui_available,
             metrics_error=metrics_error,
             status_error=status_error,
+            health=health_summary,
+            health_error=health_error,
         )
 
 
@@ -149,7 +222,9 @@ class BaseTunnelSensor(SensorEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, key: str, name: str) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, key: str, name: str
+    ) -> None:
         self.hass = hass
         self.entry = entry
         self._key = key
@@ -173,6 +248,7 @@ class BaseTunnelSensor(SensorEntity):
 
     async def async_added_to_hass(self) -> None:
         """Register for runtime updates."""
+
         @callback
         def _update() -> None:
             self.async_write_ha_state()
@@ -295,6 +371,43 @@ class BaseTunnelMetricsSensor(CoordinatorEntity, SensorEntity):
         return _drop_empty_attributes(attrs)
 
 
+class TunnelHealthSensor(BaseTunnelMetricsSensor):
+    """Selected passive health evidence, independent of Prometheus availability."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    entity_description: TunnelHealthSensorDescription
+
+    def __init__(self, coordinator, entry, description: TunnelHealthSensorDescription):
+        super().__init__(coordinator, entry, description.key, description.name)
+        self.entity_description = description
+
+    @property
+    def available(self) -> bool:
+        snapshot = self.snapshot
+        return (
+            self.coordinator.last_update_success
+            and snapshot.endpoints is not None
+            and snapshot.health_error is None
+            and self.native_value is not None
+        )
+
+    @property
+    def component(self) -> dict[str, Any]:
+        return self.snapshot.health.components.get(
+            self.entity_description.component, {}
+        )
+
+    @property
+    def native_value(self):
+        if self.entity_description.field is None:
+            return self.component.get("state")
+        return self.component.get("details", {}).get(self.entity_description.field)
+
+    @property
+    def extra_state_attributes(self):
+        return {**self.component, "snapshot_truncated": self.snapshot.health.truncated}
+
+
 class TunnelMCPRequestsSensor(BaseTunnelMetricsSensor):
     """Selected MCP command request counter."""
 
@@ -304,7 +417,9 @@ class TunnelMCPRequestsSensor(BaseTunnelMetricsSensor):
     def __init__(
         self, coordinator: TunnelMetricsCoordinator, entry: ConfigEntry
     ) -> None:
-        super().__init__(coordinator, entry, "tunnel_mcp_requests", "Tunnel MCP requests")
+        super().__init__(
+            coordinator, entry, "tunnel_mcp_requests", "Tunnel MCP requests"
+        )
 
     @property
     def native_value(self):

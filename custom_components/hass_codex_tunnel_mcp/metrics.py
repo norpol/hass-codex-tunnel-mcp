@@ -7,6 +7,8 @@ import math
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from .health import TunnelHealthSummary
+
 COMMAND_COUNT = "command_end_to_end_latency_milliseconds_count"
 COMMAND_SUM = "command_end_to_end_latency_milliseconds_sum"
 HTTP_COUNT = "http_client_request_duration_seconds_count"
@@ -14,6 +16,7 @@ HTTP_SUM = "http_client_request_duration_seconds_sum"
 
 MCP_METHODS = (
     "initialize",
+    "server/discover",
     "tools/list",
     "tools/call",
     "resources/list",
@@ -30,6 +33,8 @@ class TunnelEndpointUrls:
     metrics_url: str
     status_url: str
     ui_url: str
+    health_details_url: str
+    ready_url: str
 
 
 @dataclass(frozen=True)
@@ -98,6 +103,8 @@ class TunnelMetricsSnapshot:
     local_ui_available: bool = False
     metrics_error: str | None = None
     status_error: str | None = None
+    health: TunnelHealthSummary = field(default_factory=TunnelHealthSummary)
+    health_error: str | None = None
 
     @property
     def available(self) -> bool:
@@ -125,6 +132,8 @@ def derive_tunnel_endpoint_urls(health_url: str | None) -> TunnelEndpointUrls | 
         metrics_url=with_path("/metrics"),
         status_url=with_path("/api/status"),
         ui_url=with_path("/ui"),
+        health_details_url=with_path("/health") + "?details=true",
+        ready_url=with_path("/readyz"),
     )
 
 

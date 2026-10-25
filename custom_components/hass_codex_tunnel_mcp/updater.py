@@ -26,6 +26,7 @@ from .binary import (
     select_asset,
     select_latest_eligible_release,
     select_release_asset,
+    version_newer_than,
 )
 from .const import (
     CONF_AUTO_UPDATE_TUNNEL_CLIENT,
@@ -344,7 +345,11 @@ class TunnelClientUpdater:
                 else set(),
             )
             deferred_until = None
-            if latest_seen and latest_seen != latest_eligible:
+            if (
+                latest_seen
+                and latest_seen != latest_eligible
+                and version_newer_than(latest_seen, self.state.active_version)
+            ):
                 for release in releases:
                     if release.version == latest_seen:
                         deferred_until = _iso(
@@ -491,9 +496,13 @@ class TunnelClientUpdater:
             elif asset is not None:
                 executable = await ensure_tunnel_client(self.install_root, asset=asset)
             else:
-                raise TunnelClientError(
-                    f"no asset metadata is available for tunnel-client {target_version}"
-                )
+                # Former pinned versions were stored without asset metadata.
+                # Reuse their installed known-good binary, as during startup.
+                executable = installed_executable(self.install_root, target_version)
+                if not executable.is_file() or not os.access(executable, os.X_OK):
+                    raise TunnelClientError(
+                        f"no asset metadata is available for tunnel-client {target_version}"
+                    )
             await tunnel.start(entry_data, executable_override=executable)
             if not await tunnel.wait_until_healthy(READINESS_TIMEOUT):
                 raise TunnelClientError(

@@ -56,7 +56,7 @@
   "issues": {
     "unsupported_arch": {
       "title": "Unsupported tunnel-client platform",
-      "description": "OpenAI Tunnel for HA-MCP only has pinned tunnel-client v0.0.10 downloads for Linux amd64 and Linux arm64. This host reported {platform}."
+      "description": "OpenAI Tunnel for HA-MCP only has pinned tunnel-client v0.0.18 downloads for Linux amd64 and Linux arm64. This host reported {platform}."
     },
     "startup_failed": {
       "title": "OpenAI Tunnel for HA-MCP failed to start",

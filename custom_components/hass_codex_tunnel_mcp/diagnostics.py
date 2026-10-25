@@ -25,6 +25,16 @@ async def async_get_config_entry_diagnostics(
     diagnostics = {"config": data}
     if runtime is not None:
         diagnostics["tunnel"] = runtime["tunnel"].status.__dict__.copy()
+        coordinator = runtime.get("metrics_coordinator")
+        if coordinator is not None and coordinator.data is not None:
+            snapshot = coordinator.data
+            diagnostics["health"] = {
+                "live": snapshot.health.live,
+                "ready": snapshot.health.ready,
+                "truncated": snapshot.health.truncated,
+                "components": snapshot.health.components,
+                "error": snapshot.health_error,
+            }
         updater = runtime.get("updater")
         if updater is not None:
             diagnostics["updater"] = {

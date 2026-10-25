@@ -172,10 +172,15 @@ async def _run_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None
     fake_client = tmp_path / "tunnel-client"
     fake_client.write_text(
         "#!/usr/bin/env python3\n"
-        "import pathlib, sys, time\n"
+        "import http.server, pathlib, sys\n"
+        "class Handler(http.server.BaseHTTPRequestHandler):\n"
+        "    def do_GET(self):\n"
+        "        self.send_response(200 if self.path == '/readyz' else 404)\n"
+        "        self.end_headers()\n"
+        "server = http.server.HTTPServer(('127.0.0.1', 0), Handler)\n"
         "health_file = pathlib.Path(sys.argv[sys.argv.index('--health.url-file') + 1])\n"
-        "health_file.write_text('http://127.0.0.1:9/health')\n"
-        "time.sleep(60)\n",
+        "health_file.write_text(f'http://127.0.0.1:{server.server_port}/health')\n"
+        "server.serve_forever()\n",
         encoding="utf-8",
     )
     fake_client.chmod(0o755)
@@ -202,11 +207,52 @@ async def _run_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None
         await asyncio.sleep(0.1)
 
     assert manager.status.healthy is True
-    assert manager.status.health_url == "http://127.0.0.1:9/health"
+    assert manager.status.health_url == (tmp_path / "run/health.url").read_text()
     assert notifications > 0
 
     await manager.stop()
     assert manager.status.state == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_readiness_tracks_http_probe_not_health_file(tmp_path):
+    """A published URL and liveness 200 must not mask readiness 503 or failure."""
+    from aiohttp import web
+
+    response_status = 503
+
+    async def ready(request):
+        return web.Response(status=response_status)
+
+    app = web.Application()
+    app.router.add_get("/readyz", ready)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    health_file = tmp_path / "health.url"
+    health_file.write_text(f"http://127.0.0.1:{port}/healthz?ignored=1")
+    changed = asyncio.Event()
+    manager = TunnelManager(lambda force: None, tmp_path, changed.set)
+    task = asyncio.create_task(manager._watch_health_file(health_file))
+    try:
+        await asyncio.wait_for(changed.wait(), 2)
+        assert manager.status.health_url is not None
+        assert not manager.status.healthy
+        assert manager.status.state == "running"
+        changed.clear()
+        response_status = 200
+        await asyncio.wait_for(changed.wait(), 2)
+        assert manager.status.healthy
+        changed.clear()
+        await runner.cleanup()
+        await asyncio.wait_for(changed.wait(), 7)
+        assert not manager.status.healthy
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await runner.cleanup()
 
 
 async def _run_tunnel_manager_cleans_up_stale_client(tmp_path: Path) -> None:
