@@ -46,6 +46,7 @@ UPDATE_CHECK_INTERVAL = timedelta(days=1)
 UPDATE_BACKOFF_DAYS = 8
 READINESS_TIMEOUT = 60
 STORAGE_VERSION = 1
+DATA_UPDATE_LOCK = f"{DOMAIN}_update_lock"
 
 
 @dataclass
@@ -158,7 +159,9 @@ class TunnelClientUpdater:
         import asyncio
         from homeassistant.helpers.storage import Store
 
-        self._lock = asyncio.Lock()
+        # Entries share the versioned binary directory. Serialize updates so
+        # one installer cannot remove files another entry is still extracting.
+        self._lock = self.hass.data.setdefault(DATA_UPDATE_LOCK, asyncio.Lock())
         self._store = Store(
             self.hass, STORAGE_VERSION, f"{DOMAIN}_{self.entry.entry_id}_updater"
         )
@@ -211,6 +214,8 @@ class TunnelClientUpdater:
         from homeassistant.helpers.event import async_track_time_interval
 
         async def _run_auto_update(now: datetime) -> None:
+            if not self.auto_update_enabled:
+                return
             try:
                 await self.async_update_tunnel_client(
                     tunnel, entry_data_factory(), now=now, automatic=True
@@ -218,13 +223,10 @@ class TunnelClientUpdater:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Automatic tunnel-client update failed: %s", err)
 
-        def _schedule_update(now: datetime) -> None:
-            if not self.auto_update_enabled:
-                return
-            self.hass.async_create_task(_run_auto_update(now))
-
+        # Register the coroutine directly so Home Assistant runs it on the event
+        # loop. An undecorated sync wrapper would be dispatched to the executor.
         remove = async_track_time_interval(
-            self.hass, _schedule_update, UPDATE_CHECK_INTERVAL
+            self.hass, _run_auto_update, UPDATE_CHECK_INTERVAL
         )
         self.entry.async_on_unload(remove)
 
