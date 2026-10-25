@@ -27,5 +27,8 @@ async def async_get_config_entry_diagnostics(
         diagnostics["tunnel"] = runtime["tunnel"].status.__dict__.copy()
         updater = runtime.get("updater")
         if updater is not None:
-            diagnostics["updater"] = updater.state.to_dict()
+            diagnostics["updater"] = {
+                **updater.state.to_dict(),
+                **updater.schedule_attributes(),
+            }
     return diagnostics

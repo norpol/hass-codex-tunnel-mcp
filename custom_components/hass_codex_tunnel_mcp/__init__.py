@@ -125,8 +125,12 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
 async def async_unload_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool:
     """Unload the integration."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    runtime = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if not unload_ok:
+        return False
+    runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if runtime is not None:
+        await runtime["updater"].async_stop_auto_update()
+        hass.data[DOMAIN].pop(entry.entry_id, None)
         await runtime["tunnel"].stop()
     return unload_ok
 
