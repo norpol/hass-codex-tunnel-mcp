@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 UPDATE_CHECK_INTERVAL = timedelta(days=1)
+UPDATE_STARTUP_DELAY = timedelta(seconds=60)
 UPDATE_BACKOFF_DAYS = 8
 READINESS_TIMEOUT = 60
 STORAGE_VERSION = 1
@@ -153,10 +155,12 @@ class TunnelClientUpdater:
         self.state = TunnelClientUpdaterState()
         self._store = None
         self._lock = None
+        self.next_update_check: datetime | None = None
+        self._cancel_auto_update: Callable[[], None] | None = None
+        self._auto_update_task: asyncio.Task[None] | None = None
 
     async def async_load(self) -> None:
         """Load persisted updater state."""
-        import asyncio
         from homeassistant.helpers.storage import Store
 
         # Entries share the versioned binary directory. Serialize updates so
@@ -210,25 +214,102 @@ class TunnelClientUpdater:
         tunnel: "TunnelManager",
         entry_data_factory: Callable[[], Mapping[str, object]],
     ) -> None:
-        """Schedule daily automatic updates."""
-        from homeassistant.helpers.event import async_track_time_interval
+        """Resume the daily update schedule after Home Assistant has started."""
+        from homeassistant.core import callback
+        from homeassistant.helpers.event import async_call_later
+        from homeassistant.helpers.start import async_at_started
 
-        async def _run_auto_update(now: datetime) -> None:
-            if not self.auto_update_enabled:
-                return
+        await self.async_stop_auto_update()
+        cancelled = False
+        remove_timer = None
+        remove_start = None
+
+        @callback
+        def _schedule(when: datetime) -> None:
+            nonlocal remove_timer
+            self.next_update_check = when
+            remove_timer = async_call_later(
+                self.hass, (when - _utc_now()).total_seconds(), _start_update
+            )
+            self._notify()
+
+        async def _run_auto_update() -> None:
             try:
-                await self.async_update_tunnel_client(
-                    tunnel, entry_data_factory(), now=now, automatic=True
-                )
+                if self.auto_update_enabled:
+                    await self.async_update_tunnel_client(
+                        tunnel, entry_data_factory(), now=_utc_now(), automatic=True
+                    )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Automatic tunnel-client update failed: %s", err)
+            finally:
+                self._auto_update_task = None
+                if not cancelled:
+                    _schedule(_utc_now() + UPDATE_CHECK_INTERVAL)
 
-        # Register the coroutine directly so Home Assistant runs it on the event
-        # loop. An undecorated sync wrapper would be dispatched to the executor.
-        remove = async_track_time_interval(
-            self.hass, _run_auto_update, UPDATE_CHECK_INTERVAL
-        )
-        self.entry.async_on_unload(remove)
+        @callback
+        def _start_update(now: datetime) -> None:
+            nonlocal remove_timer
+            remove_timer = None
+            if cancelled:
+                return
+            self.next_update_check = None
+            self._notify()
+            # The callback decorator keeps task creation on the event loop.
+            self._auto_update_task = self.entry.async_create_background_task(
+                self.hass, _run_auto_update(), "tunnel-client update", eager_start=False
+            )
+
+        @callback
+        def _after_started(hass: HomeAssistant) -> None:
+            if not cancelled:
+                _schedule(self._first_update_check(_utc_now()))
+
+        @callback
+        def _cancel() -> None:
+            nonlocal cancelled
+            cancelled = True
+            if remove_start is not None:
+                remove_start()
+            if remove_timer is not None:
+                remove_timer()
+            self.next_update_check = None
+
+        self._cancel_auto_update = _cancel
+        self.entry.async_on_unload(_cancel)
+        remove_start = async_at_started(self.hass, _after_started)
+
+    async def async_stop_auto_update(self) -> None:
+        """Cancel scheduled and running checks before tearing down the tunnel."""
+        if self._cancel_auto_update is not None:
+            self._cancel_auto_update()
+            self._cancel_auto_update = None
+        if (task := self._auto_update_task) is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            self._auto_update_task = None
+
+    def _first_update_check(self, now: datetime) -> datetime:
+        """Keep a recent check's deadline across restarts, or catch up soon."""
+        earliest = now + UPDATE_STARTUP_DELAY
+        try:
+            last_check = _utc_now(datetime.fromisoformat(self.state.last_check or ""))
+        except ValueError:
+            return earliest
+        if last_check > now:
+            return earliest
+        return max(earliest, last_check + UPDATE_CHECK_INTERVAL)
+
+    def schedule_attributes(self) -> dict[str, object]:
+        """Expose runtime scheduling without changing persisted updater state."""
+        return {
+            "auto_update_enabled": self.auto_update_enabled,
+            "next_update_check": _iso(self.next_update_check)
+            if self.auto_update_enabled and self.next_update_check is not None
+            else None,
+        }
 
     @property
     def auto_update_enabled(self) -> bool:
@@ -317,9 +398,16 @@ class TunnelClientUpdater:
             old_version = self.state.active_version
             old_asset = self.state.active_asset
             try:
-                candidate_executable = await ensure_tunnel_client(
-                    self.install_root, asset=candidate
+                installation = asyncio.create_task(
+                    ensure_tunnel_client(self.install_root, asset=candidate)
                 )
+                try:
+                    candidate_executable = await asyncio.shield(installation)
+                except asyncio.CancelledError:
+                    # Installation uses worker threads, which cannot be cancelled.
+                    # Keep the shared lock until they stop touching the files.
+                    await asyncio.gather(installation, return_exceptions=True)
+                    raise
             except ChecksumError as err:
                 error = str(err)
                 self.state.failed_versions[candidate.version] = error

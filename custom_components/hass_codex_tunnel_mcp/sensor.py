@@ -237,7 +237,9 @@ class TunnelVersionSensor(BaseTunnelSensor):
         updater = self.runtime.get("updater")
         if updater is None:
             return {}
-        return _drop_empty_attributes(updater.state.as_attributes())
+        return _drop_empty_attributes(
+            {**updater.state.as_attributes(), **updater.schedule_attributes()}
+        )
 
 
 class BaseTunnelMetricsSensor(CoordinatorEntity, SensorEntity):

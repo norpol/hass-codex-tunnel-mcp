@@ -53,9 +53,16 @@ subprocess. The bundled pinned fallback and first install target is `v0.0.10`.
 ## tunnel-client Updates
 
 Automatic `tunnel-client` updates are enabled by default and can be disabled in
-the integration options. The updater checks GitHub once per day and only
-installs clean stable release tags like `v0.0.11`. Drafts, prereleases, and
-suffix build tags such as `v0.0.8--example` are skipped. New releases are held
+the integration options. After Home Assistant starts, the updater uses its saved
+last check time to resume checking GitHub once per day. Missing or overdue
+checks run after a 60-second startup delay; recent checks keep their existing
+24-hour deadline, with at least 60 seconds after startup. Reloading the
+integration follows the same schedule, so restarts do not reset a full day's
+wait. Failed checks are retried the next day.
+
+The updater installs the newest eligible clean stable release (`vX.Y.Z`), which
+can skip intermediate versions. Drafts, prereleases, and suffix build tags such
+as `v0.0.8--example` are skipped. New releases are held
 for at least 8 days before they are eligible, so a just-published release is
 reported as deferred instead of installed immediately.
 
@@ -70,7 +77,11 @@ eligible version.
 The `Tunnel-client version` sensor exposes updater attributes for the active
 version, previous known-good version, latest seen version, latest eligible
 version, deferred-until time, last check, last successful update, last error,
-and failed update versions.
+and failed update versions. It also reports `auto_update_enabled` and the UTC
+`next_update_check` deadline. The deadline is omitted while Home Assistant is
+still starting, while a check is running, or when automatic updates are disabled.
+These settings describe tunnel-client updates; HACS updates the integration's
+Python code separately.
 
 ## Runtime Behavior
 
@@ -131,8 +142,9 @@ python -m compileall custom_components tests
 python -m pytest
 ```
 
-The scheduler tests run Home Assistant's real interval helper and job dispatcher
-with a controlled clock. They cover daily checks, event-loop safety, serialized
-installation with independent config entries, unload callbacks, transient
+The scheduler tests run Home Assistant's real timers and job dispatcher
+with a controlled clock. They cover startup and reload scheduling, daily checks,
+event-loop safety, serialized installation with independent config entries,
+unload callbacks, transient
 failures, and the existing eight-day eligibility, checksum rejection, and
 readiness rollback behavior.
