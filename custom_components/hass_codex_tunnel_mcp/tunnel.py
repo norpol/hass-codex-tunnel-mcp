@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 import logging
 import os
-from pathlib import Path
 import signal
 import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
 
+from aiohttp import ClientError, ClientSession, ClientTimeout
+
+from .binary import is_clean_version
 from .const import (
     CONF_API_KEY,
     CONF_CONTROL_PLANE_BASE_URL,
@@ -20,7 +23,7 @@ from .const import (
     CONF_TUNNEL_ID,
     TUNNEL_CLIENT_VERSION,
 )
-from .binary import is_clean_version
+from .metrics import derive_tunnel_endpoint_urls
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -234,7 +237,7 @@ class TunnelManager:
         )
 
     async def wait_until_healthy(self, timeout: float) -> bool:
-        """Wait for the current process to publish a healthy URL."""
+        """Wait for the current process to pass its readiness probe."""
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             if self.status.healthy:
@@ -298,15 +301,25 @@ class TunnelManager:
             _LOGGER.log(level, "tunnel-client: %s", line.decode(errors="replace").rstrip())
 
     async def _watch_health_file(self, health_file: Path) -> None:
-        while True:
-            text = await asyncio.to_thread(_read_health_url, health_file)
-            if text:
-                self.status.health_url = text
-                self.status.healthy = True
-                self.status.state = "healthy"
-                self._notify()
-                return
-            await asyncio.sleep(0.5)
+        async with ClientSession(timeout=ClientTimeout(total=5)) as session:
+            while True:
+                text = await asyncio.to_thread(_read_health_url, health_file)
+                endpoints = derive_tunnel_endpoint_urls(text)
+                ready = False
+                if endpoints is not None:
+                    try:
+                        async with session.get(
+                            endpoints.ready_url, allow_redirects=False
+                        ) as response:
+                            ready = response.status == 200
+                    except (ClientError, TimeoutError):
+                        pass
+                if (self.status.health_url, self.status.healthy) != (text or None, ready):
+                    self.status.health_url = text or None
+                    self.status.healthy = ready
+                    self.status.state = "healthy" if ready else "running"
+                    self._notify()
+                await asyncio.sleep(5 if ready else 0.5)
 
     @staticmethod
     async def _maybe_await(value: object) -> object:

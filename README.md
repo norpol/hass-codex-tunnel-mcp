@@ -110,6 +110,31 @@ supported initially. Other platforms create a Home Assistant repair issue.
 - Tunnel MCP average latency
 - Tunnel MCP errors
 - Tunnel upstream requests
+- Tunnel control plane (polling state, failures and retry timing)
+- Tunnel MCP health (transport and startup/discovery observations)
+- Tunnel active requests (with completions, failures and timeouts)
+- Tunnel queue depth (with capacity and backpressure)
+- Tunnel delivery retries
+- Tunnel delivery failures
+
+The ready state and update activation check poll `/readyz`; publishing a health
+URL alone does not mean the client is ready. The new diagnostic sensors read
+the passive `/health?details=true` snapshot once per minute. Missing components,
+unsupported schemas, and older clients without this endpoint make those sensors
+unavailable without affecting the existing metrics sensors.
+
+Health observations are historical evidence, not continuous reachability checks.
+In particular, HTTP MCP reports startup-probe status but cannot provide the
+same-child discovery evidence available for stdio: `not_observed` does not mean
+the HTTP server is broken. Tool counts are retained counts only when discovery
+was observed; completeness/partial/limited flags must accompany them. Tool names,
+schemas, server identities, payloads, and trace files are not collected.
+
+These additions use the component health API introduced in v0.0.15 and expanded
+in v0.0.17. See the upstream [health contract](https://github.com/openai/tunnel-client/blob/v0.0.18/docs/health.md).
+v0.0.11–v0.0.18 also improve deadline/retry handling, OAuth startup discovery,
+sessionless MCP compatibility, and response timing/tracing. Timing metadata and
+opt-in JSONL traces are not aggregate metrics; tracing remains disabled.
 
 The metrics entities summarize the local `tunnel-client` `/metrics` and
 `/api/status` endpoints. They intentionally omit Go runtime/process/promhttp

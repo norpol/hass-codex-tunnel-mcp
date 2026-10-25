@@ -26,6 +26,7 @@ from .binary import (
     select_asset,
     select_latest_eligible_release,
     select_release_asset,
+    version_newer_than,
 )
 from .const import (
     CONF_AUTO_UPDATE_TUNNEL_CLIENT,
@@ -344,7 +345,11 @@ class TunnelClientUpdater:
                 else set(),
             )
             deferred_until = None
-            if latest_seen and latest_seen != latest_eligible:
+            if (
+                latest_seen
+                and latest_seen != latest_eligible
+                and version_newer_than(latest_seen, self.state.active_version)
+            ):
                 for release in releases:
                     if release.version == latest_seen:
                         deferred_until = _iso(
