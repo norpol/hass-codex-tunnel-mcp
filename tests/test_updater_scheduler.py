@@ -83,7 +83,12 @@ async def scheduler(tmp_path, monkeypatch):
             )
             entries.append(entry)
             updater = TunnelClientUpdater(hass, entry, tmp_path / "bin", Mock())
-            Store.async_load.return_value = {"last_check": last_check}
+            # Keep the historical v0.0.10 -> v0.0.11 update scenarios independent
+            # of the pinned fallback used by new installations.
+            Store.async_load.return_value = {
+                "active_version": "v0.0.10",
+                "last_check": last_check,
+            }
             await updater.async_load()
             return updater
 

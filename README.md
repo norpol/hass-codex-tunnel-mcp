@@ -6,7 +6,7 @@ A HACS custom integration that exposes an existing Home Assistant MCP server thr
 The integration downloads the host-specific `tunnel-client` release binary on
 first run, verifies the SHA256 digest, extracts each version under
 `.hass_codex_tunnel_mcp/bin/<version>/`, and supervises it as a Home Assistant
-subprocess. The bundled pinned fallback and first install target is `v0.0.10`.
+subprocess. The bundled pinned fallback and first install target is `v0.0.18`.
 
 ## Install with HACS
 
