@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from custom_components.hass_codex_tunnel_mcp.const import (
     CONF_API_KEY,
@@ -87,6 +90,82 @@ def test_read_health_url(tmp_path: Path) -> None:
     health_file.write_text("http://127.0.0.1:9\n", encoding="utf-8")
 
     assert _read_health_url(health_file) == "http://127.0.0.1:9"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancellations", [0, 1, 2])
+async def test_stop_finishes_cleanup_despite_cancellation(
+    tmp_path, monkeypatch, cancellations
+):
+    """Concurrent callers must await one shutdown, even if one is cancelled."""
+    loop = asyncio.get_running_loop()
+    now = 0.0
+    monkeypatch.setattr(loop, "time", lambda: now)
+    waiting = asyncio.Event()
+    killed = asyncio.Event()
+    reaped = asyncio.Event()
+
+    async def wait_for_exit():
+        waiting.set()
+        await reaped.wait()
+        process.returncode = -9
+        return process.returncode
+
+    process = Mock(
+        returncode=None,
+        wait=AsyncMock(side_effect=wait_for_exit),
+        kill=Mock(side_effect=killed.set),
+    )
+    notify = Mock()
+    manager = TunnelManager(lambda force: None, tmp_path, notify)
+    manager._process = process
+    manager.status.state = "running"
+    watch = manager._watch_task = asyncio.create_task(asyncio.Event().wait())
+    logs = [asyncio.create_task(asyncio.Event().wait()) for _ in range(2)]
+    manager._log_tasks = logs.copy()
+    first = asyncio.create_task(manager.stop())
+    callers = [first]
+    try:
+        await waiting.wait()
+        assert manager.process is process
+        if cancellations:
+            first.cancel("cancel update")
+            await asyncio.sleep(0)
+        second = asyncio.create_task(manager.stop())
+        callers.append(second)
+        await asyncio.sleep(0)
+
+        # Exercise the real timeout without waiting ten seconds in the test.
+        now = 10.0
+        await killed.wait()
+        if cancellations == 2:
+            first.cancel("cancel update again")
+            await asyncio.sleep(0)
+        assert not first.done()
+        assert not second.done()
+        assert manager.process is process
+        assert manager.status.state == "running"
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        notify.assert_not_called()
+    finally:
+        reaped.set()
+        results = await asyncio.gather(*callers, return_exceptions=True)
+
+    if cancellations:
+        assert isinstance(results[0], asyncio.CancelledError)
+    else:
+        assert results[0] is None
+    assert results[1] is None
+    assert process.returncode == -9
+    assert process.wait.await_count == 2
+    assert manager.process is None
+    assert watch.cancelled()
+    assert all(task.cancelled() for task in logs)
+    assert manager._watch_task is None
+    assert manager._log_tasks == []
+    assert manager.status.state == "stopped"
+    notify.assert_called_once_with()
 
 
 async def _run_tunnel_manager_lifecycle_with_fake_client(tmp_path: Path) -> None:

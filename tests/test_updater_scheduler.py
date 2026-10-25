@@ -34,6 +34,7 @@ from custom_components.hass_codex_tunnel_mcp.const import (
     CONF_AUTO_UPDATE_TUNNEL_CLIENT,
     DOMAIN,
 )
+from custom_components.hass_codex_tunnel_mcp.tunnel import TunnelManager
 from custom_components.hass_codex_tunnel_mcp.updater import (
     UPDATE_CHECK_INTERVAL,
     UPDATE_STARTUP_DELAY,
@@ -342,6 +343,73 @@ async def test_unload_cancels_running_check_without_rescheduling(
     fetch.assert_awaited_once()
     assert updater.next_update_check is None
     assert updater.state.last_error is None
+
+
+@pytest.mark.asyncio
+async def test_unload_during_update_waits_for_old_process_cleanup(
+    scheduler, monkeypatch, tmp_path
+):
+    hass, make_updater, advance = scheduler
+    updater = await make_updater(last_check=None)
+    asset = TunnelClientAsset("linux", "amd64", "candidate.zip", "a" * 64, "v0.0.11")
+    check = AsyncMock(return_value=UpdateCheckResult("v0.0.11", "v0.0.11", asset, None))
+    monkeypatch.setattr(updater, "async_check_for_update", check)
+    monkeypatch.setattr(
+        updater_module,
+        "ensure_tunnel_client",
+        AsyncMock(return_value=tmp_path / "v0.0.11" / "tunnel-client"),
+    )
+    spawn = AsyncMock()
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(
+        hass,
+        "config_entries",
+        Mock(async_unload_platforms=AsyncMock(return_value=True)),
+    )
+    waiting = asyncio.Event()
+    exited = asyncio.Event()
+
+    async def wait_for_exit():
+        waiting.set()
+        await exited.wait()
+        process.returncode = -9
+        return process.returncode
+
+    process = Mock(
+        returncode=None,
+        wait=AsyncMock(side_effect=wait_for_exit),
+        kill=Mock(side_effect=exited.set),
+    )
+    tunnel = TunnelManager(lambda force: None, tmp_path / "run")
+    tunnel._process = process
+    hass.data[DOMAIN] = {updater.entry.entry_id: {"updater": updater, "tunnel": tunnel}}
+    await updater.async_start_auto_update(tunnel, lambda: updater.entry.data)
+    await advance(UPDATE_STARTUP_DELAY, wait=False)
+    await waiting.wait()
+
+    unload = asyncio.create_task(async_unload_entry(hass, updater.entry))
+    try:
+        await asyncio.sleep(0)
+        await advance(timedelta(seconds=10))
+        assert await unload
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        assert process.returncode == -9
+        assert tunnel.process is None
+        assert tunnel.status.state == "stopped"
+        assert updater.entry.entry_id not in hass.data[DOMAIN]
+        assert not updater._lock.locked()
+        assert updater.state.active_version == "v0.0.10"
+        assert updater.state.last_error is None
+        assert updater.state.failed_versions == {}
+        spawn.assert_not_awaited()
+        await updater.entry._async_process_on_unload(hass)
+        await advance()
+        assert updater.next_update_check is None
+        check.assert_awaited_once()
+    finally:
+        exited.set()
+        await unload
 
 
 @pytest.mark.asyncio
