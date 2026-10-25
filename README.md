@@ -123,7 +123,16 @@ version when one is available.
 
 ## Development Checks
 
+Use Python 3.14.2 or newer for the Home Assistant 2026.10.1 regression tests:
+
 ```bash
+python -m pip install -r requirements-test.txt
 python -m compileall custom_components tests
-pytest
+python -m pytest
 ```
+
+The scheduler tests run Home Assistant's real interval helper and job dispatcher
+with a controlled clock. They cover daily checks, event-loop safety, serialized
+installation with independent config entries, unload callbacks, transient
+failures, and the existing eight-day eligibility, checksum rejection, and
+readiness rollback behavior.
