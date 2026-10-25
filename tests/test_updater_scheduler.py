@@ -51,9 +51,7 @@ async def scheduler(tmp_path, monkeypatch):
             lambda: (clock() - START.replace(tzinfo=None)).total_seconds(),
         )
         monkeypatch.setattr(hass.loop, "slow_callback_duration", float("inf"))
-        monkeypatch.setattr(
-            dt_util, "utcnow", lambda: clock().replace(tzinfo=UTC)
-        )
+        monkeypatch.setattr(dt_util, "utcnow", lambda: clock().replace(tzinfo=UTC))
         monkeypatch.setattr(frame._hass, "hass", hass)
         monkeypatch.setattr(Store, "async_load", AsyncMock(return_value=None))
         monkeypatch.setattr(Store, "async_save", AsyncMock())
