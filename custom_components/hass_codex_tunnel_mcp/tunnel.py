@@ -100,6 +100,7 @@ class TunnelManager:
         self._run_dir = run_dir
         self._notify = notify or (lambda: None)
         self._process: asyncio.subprocess.Process | None = None
+        self._stop_task: asyncio.Task[None] | None = None
         self._watch_task: asyncio.Task[None] | None = None
         self._log_tasks: list[asyncio.Task[None]] = []
         self.status = TunnelStatus()
@@ -173,7 +174,31 @@ class TunnelManager:
         self._notify()
 
     async def stop(self) -> None:
-        """Stop tunnel-client if it is running."""
+        """Finish stopping tunnel-client before propagating caller cancellation."""
+        if self._stop_task is None:
+            self._stop_task = asyncio.create_task(
+                self._stop(), name="tunnel-client stop"
+            )
+        task = self._stop_task
+        cancellation: asyncio.CancelledError | None = None
+        try:
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError as err:
+                    # Keep draining cleanup, including after repeated cancellation.
+                    # Concurrent stop callers share this same protected task.
+                    if cancellation is None:
+                        cancellation = err
+            task.result()
+        finally:
+            if self._stop_task is task:
+                self._stop_task = None
+        if cancellation is not None:
+            raise cancellation
+
+    async def _stop(self) -> None:
+        """Clean up the process and its tasks independently of stop callers."""
         if self._watch_task is not None:
             self._watch_task.cancel()
             try:
@@ -183,7 +208,6 @@ class TunnelManager:
             self._watch_task = None
 
         process = self._process
-        self._process = None
         if process is not None and process.returncode is None:
             process.terminate()
             try:
@@ -192,6 +216,7 @@ class TunnelManager:
                 process.kill()
                 await process.wait()
         await self._stop_log_tasks()
+        self._process = None
         self.status = TunnelStatus(state="stopped")
         self._notify()
 
