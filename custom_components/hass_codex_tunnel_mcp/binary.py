@@ -110,14 +110,14 @@ PINNED_ASSETS: dict[tuple[str, str], TunnelClientAsset] = {
     ("linux", "amd64"): TunnelClientAsset(
         os_name="linux",
         arch="amd64",
-        filename="tunnel-client-v0.0.18-linux-amd64.zip",
-        sha256="3c82307316acd93c88a384b62af1d81d3f4cb0efa975f9c0bfaef922866a04c4",
+        filename="tunnel-client-v0.0.19-linux-amd64.zip",
+        sha256="9ee9448592345a9dd1517fb79791ab54d24f051142eb92bcbe8cd355effc9142",
     ),
     ("linux", "arm64"): TunnelClientAsset(
         os_name="linux",
         arch="arm64",
-        filename="tunnel-client-v0.0.18-linux-arm64.zip",
-        sha256="a5f3d70efc75f5e66ab5c67c44d272aa80b2736f93f875f165140517750ec035",
+        filename="tunnel-client-v0.0.19-linux-arm64.zip",
+        sha256="5a19e556c4a8736ab7a6fde6f0568f6e7411fa2dff21186fc15bc30e9b98a603",
     ),
 }
 

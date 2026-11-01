@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -48,9 +48,9 @@ async def test_rollback_to_former_pinned_version_without_asset_metadata(
 ):
     updater = TunnelClientUpdater(Mock(), Mock(), tmp_path, Mock())
     updater.state = TunnelClientUpdaterState(
-        active_version="v0.0.16", previous_version="v0.0.10"
+        active_version="v0.0.19", previous_version="v0.0.18"
     )
-    executable = tmp_path / "v0.0.10" / "tunnel-client"
+    executable = tmp_path / "v0.0.18" / "tunnel-client"
     if cached_binary != "missing":
         executable.parent.mkdir()
         executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -72,15 +72,15 @@ async def test_rollback_to_former_pinned_version_without_asset_metadata(
             entry_data, executable_override=executable
         )
         tunnel.wait_until_healthy.assert_awaited_once()
-        assert updater.state.active_version == "v0.0.10"
-        assert updater.state.previous_version == "v0.0.16"
+        assert updater.state.active_version == "v0.0.18"
+        assert updater.state.previous_version == "v0.0.19"
         assert updater.state.last_error is None
         create_issue.assert_not_awaited()
     else:
         assert result is False
         tunnel.start.assert_not_awaited()
-        assert updater.state.active_version == "v0.0.16"
-        assert updater.state.previous_version == "v0.0.10"
+        assert updater.state.active_version == "v0.0.19"
+        assert updater.state.previous_version == "v0.0.18"
         assert updater.state.last_error is not None
         create_issue.assert_awaited_once()
 
@@ -99,3 +99,34 @@ async def test_only_newer_uninstalled_releases_are_deferred(tmp_path, monkeypatc
     result = await updater.async_check_for_update(now=datetime(2026, 10, 25, tzinfo=UTC))
     assert bool(result.deferred_until) is deferred
     assert result.candidate_asset is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("offset,eligible", [(-1, False), (0, True), (1, True)])
+async def test_v019_exact_eight_day_boundary(tmp_path, monkeypatch, offset, eligible):
+    """The fallback bump must not make automatic updates eligible early."""
+    from custom_components.hass_codex_tunnel_mcp.binary import PINNED_ASSETS
+
+    updater = TunnelClientUpdater(Mock(), Mock(), tmp_path, Mock())
+    updater.state = TunnelClientUpdaterState.from_dict({"active_version": "v0.0.18"})
+    release = {
+        "tag_name": "v0.0.19", "published_at": "2026-10-30T20:26:10Z",
+        "draft": False, "prerelease": False,
+        "assets": [
+            {"name": a.filename, "digest": "sha256:" + a.sha256,
+             "browser_download_url": a.url}
+            for a in PINNED_ASSETS.values()
+        ],
+    }
+    monkeypatch.setattr(updater_module, "fetch_github_releases", AsyncMock(
+        return_value=parse_github_releases([release])
+    ))
+    monkeypatch.setattr(updater_module, "delete_issue", AsyncMock())
+    deadline = datetime(2026, 11, 7, 20, 26, 10, tzinfo=UTC)
+    result = await updater.async_check_for_update(
+        now=deadline + timedelta(microseconds=offset), skip_failed_versions=True
+    )
+    assert updater_module.UPDATE_BACKOFF_DAYS == 8
+    assert (result.candidate_version == "v0.0.19") is eligible
+    assert result.deferred_until == (None if eligible else deadline.isoformat())
+    assert updater.state.active_version == "v0.0.18"

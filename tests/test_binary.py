@@ -35,8 +35,15 @@ def test_select_asset_for_linux_amd64_and_arm64() -> None:
 
     assert amd64 == PINNED_ASSETS[("linux", "amd64")]
     assert arm64 == PINNED_ASSETS[("linux", "arm64")]
-    assert amd64.sha256 == "3c82307316acd93c88a384b62af1d81d3f4cb0efa975f9c0bfaef922866a04c4"
-    assert arm64.sha256 == "a5f3d70efc75f5e66ab5c67c44d272aa80b2736f93f875f165140517750ec035"
+    for asset in (amd64, arm64):
+        assert asset.version == "v0.0.19"
+        assert asset.filename == f"tunnel-client-{asset.version}-linux-{asset.arch}.zip"
+        assert asset.url == (
+            "https://github.com/openai/tunnel-client/releases/download/"
+            f"{asset.version}/{asset.filename}"
+        )
+    assert amd64.sha256 == "9ee9448592345a9dd1517fb79791ab54d24f051142eb92bcbe8cd355effc9142"
+    assert arm64.sha256 == "5a19e556c4a8736ab7a6fde6f0568f6e7411fa2dff21186fc15bc30e9b98a603"
 
 
 def test_install_from_zip_bytes_verifies_and_extracts(tmp_path: Path) -> None:
@@ -55,6 +62,18 @@ def test_install_from_zip_bytes_rejects_bad_checksum(tmp_path: Path) -> None:
 
     with pytest.raises(ChecksumError):
         install_from_zip_bytes(_zip_with_client(), asset, tmp_path)
+
+
+def test_bad_download_preserves_installed_binary(tmp_path: Path) -> None:
+    """Verification must happen before an existing installation is touched."""
+    data = _zip_with_client()
+    asset = TunnelClientAsset("linux", "amd64", "fake.zip", sha256_bytes(data))
+    executable = install_from_zip_bytes(data, asset, tmp_path)
+    original = executable.read_bytes()
+    with pytest.raises(ChecksumError):
+        install_from_zip_bytes(data + b"tampered", asset, tmp_path)
+    assert executable.read_bytes() == original
+    assert (tmp_path / f".{asset.sha256}.complete").read_text() == asset.sha256
 
 
 def test_release_selection_skips_young_and_suffix_versions() -> None:
