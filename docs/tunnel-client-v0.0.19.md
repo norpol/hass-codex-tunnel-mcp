@@ -55,8 +55,10 @@ With Python 3.14.8 and Home Assistant 2026.10.1, the updated local suite passed
 95 tests with only that known environment-dependent test deselected. Compileall
 and `git diff --check` also passed.
 The GitHub Actions matrix runs the full suite, including stale-process cleanup
-and the real binaries, on ordinary Linux amd64 and arm64 runners. Consult the
-PR checks for the recorded results; local execution is amd64 only.
+and the real binaries, on ordinary Linux amd64 and arm64 runners. The [initial CI run](https://github.com/norpol/hass-codex-tunnel-mcp/actions/runs/41306958026)
+passed **96 tests on amd64 and 96 on native arm64**, including the stale-process
+test and all eight real-binary cases. Local execution is amd64 only; consult
+the PR checks for results on subsequent revisions.
 
 ## Compatibility findings and limits
 

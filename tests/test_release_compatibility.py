@@ -7,15 +7,15 @@ Home Assistant instance, OpenAI credentials, or external service is used.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 from urllib.parse import urlsplit
 
-from aiohttp import ClientSession, web
 import pytest
 import pytest_asyncio
+from aiohttp import ClientSession, web
 
 from custom_components.hass_codex_tunnel_mcp import updater as updater_module
 from custom_components.hass_codex_tunnel_mcp.binary import (
