@@ -1,0 +1,45 @@
+name: Integration and release compatibility
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -r requirements-test.txt
+      - name: Download release fixtures (tests verify SHA-256 before extraction)
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/tunnel-releases"
+          for version in v0.0.18 v0.0.19; do
+            asset="tunnel-client-${version}-linux-${ARCH}.zip"
+            curl --fail --location --retry 3 --max-time 120 \
+              "https://github.com/openai/tunnel-client/releases/download/${version}/${asset}" \
+              --output "$RUNNER_TEMP/tunnel-releases/$asset"
+          done
+      - run: python -m compileall -q custom_components tests
+      - name: Test integration and real release binaries
+        env:
+          TUNNEL_CLIENT_ARCHIVE_DIR: ${{ runner.temp }}/tunnel-releases
+        run: python -m pytest -q

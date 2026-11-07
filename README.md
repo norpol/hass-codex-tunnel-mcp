@@ -6,7 +6,7 @@ A HACS custom integration that exposes an existing Home Assistant MCP server thr
 The integration downloads the host-specific `tunnel-client` release binary on
 first run, verifies the SHA256 digest, extracts each version under
 `.hass_codex_tunnel_mcp/bin/<version>/`, and supervises it as a Home Assistant
-subprocess. The bundled pinned fallback and first install target is `v0.0.18`.
+subprocess. The bundled pinned fallback and first install target is `v0.0.19`.
 
 ## Install with HACS
 
@@ -83,6 +83,13 @@ still starting, while a check is running, or when automatic updates are disabled
 These settings describe tunnel-client updates; HACS updates the integration's
 Python code separately.
 
+v0.0.19 was published on October 30, 2026 at 20:26:10 UTC and becomes eligible
+on November 7, 2026 at 20:26:10 UTC (21:26:10 Vienna time). Installation occurs
+at the next scheduled check, not necessarily at that instant. Changing the
+pinned fallback does not migrate an existing cached active version. New installs
+and recovery to the pinned fallback use the pin immediately; the eight-day hold
+applies to release selection by the updater, including manual update requests.
+
 ## Runtime Behavior
 
 The integration validates the configured HA-MCP URL, then starts:
@@ -123,6 +130,12 @@ the passive `/health?details=true` snapshot once per minute. Missing components,
 unsupported schemas, and older clients without this endpoint make those sensors
 unavailable without affecting the existing metrics sensors.
 
+Readiness is an MCP/OAuth startup decision, not proof that the control plane
+accepted the API key: both v0.0.18 and v0.0.19 can return `/readyz` 200 while
+polling receives HTTP 401. Check the control-plane health sensor as well as a
+real MCP request when validating a deployment. The update activation gate uses
+this upstream readiness contract and cannot detect every authentication failure.
+
 Health observations are historical evidence, not continuous reachability checks.
 In particular, HTTP MCP reports startup-probe status but cannot provide the
 same-child discovery evidence available for stdio: `not_observed` does not mean
@@ -131,10 +144,19 @@ was observed; completeness/partial/limited flags must accompany them. Tool names
 schemas, server identities, payloads, and trace files are not collected.
 
 These additions use the component health API introduced in v0.0.15 and expanded
-in v0.0.17. See the upstream [health contract](https://github.com/openai/tunnel-client/blob/v0.0.18/docs/health.md).
+in v0.0.17. See the upstream [health contract](https://github.com/openai/tunnel-client/blob/v0.0.19/docs/health.md).
 v0.0.11–v0.0.18 also improve deadline/retry handling, OAuth startup discovery,
 sessionless MCP compatibility, and response timing/tracing. Timing metadata and
 opt-in JSONL traces are not aggregate metrics; tracing remains disabled.
+
+v0.0.19 forwards an MCP server's response `X-Request-Id` as
+`X-Tunnel-Mcp-Request-Id`; the field is optional and omitted when absent or
+listed in `Connection`. Its stdio child recovery does not apply to this
+integration's HTTP MCP transport. No new stdio flags or YAML keys are added,
+so the command remains compatible with v0.0.18 rollback. Bounded DNS diagnostics
+add log context without changing DNS resolution. See the
+[v0.0.19 compatibility assessment](docs/tunnel-client-v0.0.19.md) for test scope
+and the remaining Home Assistant checks.
 
 The metrics entities summarize the local `tunnel-client` `/metrics` and
 `/api/status` endpoints. They intentionally omit Go runtime/process/promhttp
@@ -173,3 +195,9 @@ event-loop safety, serialized installation with independent config entries,
 unload callbacks, transient
 failures, and the existing eight-day eligibility, checksum rejection, and
 readiness rollback behavior.
+
+Optional release tests launch the checksum-verified v0.0.18 and v0.0.19 binaries
+against loopback MCP/control-plane fixtures through the real integration process
+manager and updater. They use fake credentials and never connect to a live HA
+installation. See the [reproduction commands](docs/tunnel-client-v0.0.19.md#reproduce).
+GitHub Actions runs the complete suite and these tests on Linux amd64 and arm64.
