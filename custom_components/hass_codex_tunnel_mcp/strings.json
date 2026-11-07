@@ -106,5 +106,20 @@
       "title": "tunnel-client fell back to bundled version",
       "description": "The configured active tunnel-client could not be used, so the integration fell back to the bundled version: {error}"
     }
+  },
+  "entity": {
+    "button": {
+      "check_releases": {
+        "name": "Check releases"
+      },
+      "install_release": {
+        "name": "Install selected release"
+      }
+    },
+    "select": {
+      "release_override": {
+        "name": "Release override (ignores age hold)"
+      }
+    }
   }
 }

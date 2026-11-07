@@ -63,8 +63,8 @@ wait. Failed checks are retried the next day.
 The updater installs the newest eligible clean stable release (`vX.Y.Z`), which
 can skip intermediate versions. Drafts, prereleases, and suffix build tags such
 as `v0.0.8--example` are skipped. New releases are held
-for at least 8 days before they are eligible, so a just-published release is
-reported as deferred instead of installed immediately.
+for at least 8 days before automatic or default manual installation, so a
+just-published release is reported as deferred.
 
 Each selected asset must match a SHA256 digest from the GitHub release metadata
 or `SHA256SUMS.txt` before it is installed. The updater starts the candidate
@@ -72,7 +72,8 @@ binary first and only marks it active after the tunnel becomes ready. If the
 candidate does not become ready, the integration returns to the previous
 known-good version, records the failed version so automatic checks skip it, and
 raises a Home Assistant repair issue. Manual updates can still retry a failed
-eligible version.
+eligible version. The explicit release override described below can also retry
+a selected newer stable version before its age hold ends.
 
 The `Tunnel-client version` sensor exposes updater attributes for the active
 version, previous known-good version, latest seen version, latest eligible
@@ -88,7 +89,30 @@ on November 7, 2026 at 20:26:10 UTC (21:26:10 Vienna time). Installation occurs
 at the next scheduled check, not necessarily at that instant. Changing the
 pinned fallback does not migrate an existing cached active version. New installs
 and recovery to the pinned fallback use the pin immediately; the eight-day hold
-applies to release selection by the updater, including manual update requests.
+applies to automatic updates and the default manual update action.
+
+### Manual controls
+
+On the integration's device page:
+
+1. Press **Check releases** to refresh the available newer stable versions.
+2. Leave **Release override (ignores age hold)** at **Latest eligible (8-day hold)**
+   for normal updates, or deliberately choose a specific version such as
+   `v0.0.20` to bypass the age hold for that installation.
+3. Press **Install selected release**.
+
+Choosing a version alone does not install it or change automatic updates. The
+selection resets after an installation attempt and after integration reload;
+it is not saved as a permanent pin. The selected release is fetched again before
+installation, must still be a published newer stable version, and must pass the
+same checksum and startup-readiness checks. Failed startup returns to the
+previous version. The existing `update_tunnel_client` service keeps the age hold;
+`rollback_tunnel_client` remains available for returning to the previous binary.
+
+v0.0.20 becomes eligible for automatic updates on **November 14, 2026 at
+22:05:17 UTC (23:05:17 CET)**, at the next scheduled check. The fallback pin stays
+at v0.0.19. The [v0.0.20 assessment](docs/tunnel-client-v0.0.20.md) covers the
+actual release binaries, OAuth discovery/forwarding, and the manual controls.
 
 ## Runtime Behavior
 
@@ -196,8 +220,8 @@ unload callbacks, transient
 failures, and the existing eight-day eligibility, checksum rejection, and
 readiness rollback behavior.
 
-Optional release tests launch the checksum-verified v0.0.18 and v0.0.19 binaries
+Optional release tests launch the checksum-verified v0.0.18, v0.0.19 and v0.0.20 binaries
 against loopback MCP/control-plane fixtures through the real integration process
 manager and updater. They use fake credentials and never connect to a live HA
-installation. See the [reproduction commands](docs/tunnel-client-v0.0.19.md#reproduce).
+installation. See the [reproduction commands](docs/tunnel-client-v0.0.20.md#reproduce).
 GitHub Actions runs the complete suite and these tests on Linux amd64 and arm64.

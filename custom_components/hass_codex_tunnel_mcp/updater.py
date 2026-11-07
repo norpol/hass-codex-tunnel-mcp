@@ -26,6 +26,7 @@ from .binary import (
     select_asset,
     select_latest_eligible_release,
     select_release_asset,
+    stable_clean_releases,
     version_newer_than,
 )
 from .const import (
@@ -156,6 +157,9 @@ class TunnelClientUpdater:
         self.state = TunnelClientUpdaterState()
         self._store = None
         self._lock = None
+        # UI selection is deliberately ephemeral and never read by automation.
+        self.available_versions: tuple[str, ...] = ()
+        self.selected_version: str | None = None
         self.next_update_check: datetime | None = None
         self._cancel_auto_update: Callable[[], None] | None = None
         self._auto_update_task: asyncio.Task[None] | None = None
@@ -325,11 +329,21 @@ class TunnelClientUpdater:
         *,
         now: datetime | None = None,
         skip_failed_versions: bool = True,
+        selected_version: str | None = None,
     ) -> UpdateCheckResult:
-        """Check GitHub for a verified, eligible tunnel-client update."""
+        """Check eligible updates, or validate an explicit manual selection."""
         now = _utc_now(now)
         try:
             releases = await fetch_github_releases()
+            stable = stable_clean_releases(releases)
+            self.available_versions = tuple(
+                release.version
+                for release in stable
+                if version_newer_than(release.version, self.state.active_version)
+                and release.published_at <= now
+            )
+            if self.selected_version not in self.available_versions:
+                self.selected_version = None
             latest_seen = latest_seen_clean_version(releases)
             eligible = eligible_clean_releases(
                 releases, now=now, minimum_age_days=UPDATE_BACKOFF_DAYS
@@ -344,6 +358,14 @@ class TunnelClientUpdater:
                 if skip_failed_versions
                 else set(),
             )
+            if selected_version is not None:
+                # Explicit manual selection alone can bypass the age hold. It
+                # cannot install a draft, prerelease, downgrade, or unknown tag.
+                if selected_version not in self.available_versions:
+                    raise TunnelClientError(
+                        "selected release is not a published newer stable version"
+                    )
+                candidate = next(r for r in stable if r.version == selected_version)
             deferred_until = None
             if (
                 latest_seen
@@ -388,13 +410,22 @@ class TunnelClientUpdater:
         *,
         now: datetime | None = None,
         automatic: bool = False,
+        selected_version: str | None = None,
     ) -> UpdateCheckResult:
-        """Install the latest eligible update and rollback on readiness failure."""
+        """Install an eligible update or an explicitly selected manual release.
+
+        Only the selected manual path bypasses the eight-day age hold; both
+        paths retain verification, readiness gating, and failed-update rollback.
+        """
+        if automatic and selected_version is not None:
+            raise TunnelClientError("automatic updates cannot override the eight-day hold")
         if self._lock is None:
             raise RuntimeError("updater was not loaded")
         async with self._lock:
             result = await self.async_check_for_update(
-                now=now, skip_failed_versions=automatic
+                now=now,
+                skip_failed_versions=automatic,
+                selected_version=selected_version,
             )
             if result.candidate_asset is None:
                 return result
@@ -447,6 +478,14 @@ class TunnelClientUpdater:
             self.state.previous_version = old_version
             self.state.previous_asset = old_asset
             self.state.last_update = _iso(update_time)
+            self.available_versions = tuple(
+                v
+                for v in self.available_versions
+                if version_newer_than(v, candidate.version)
+            )
+            self.selected_version = None
+            if self.state.latest_seen_version == candidate.version:
+                self.state.deferred_until = None
             self.state.last_error = None
             self.state.failed_versions.pop(candidate.version, None)
             await self.async_save()
