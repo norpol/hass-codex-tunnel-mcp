@@ -17,6 +17,7 @@ import pytest
 import pytest_asyncio
 from aiohttp import ClientSession, web
 
+from custom_components.hass_codex_tunnel_mcp import binary as binary_module
 from custom_components.hass_codex_tunnel_mcp import updater as updater_module
 from custom_components.hass_codex_tunnel_mcp.binary import (
     TunnelClientAsset,
@@ -40,7 +41,10 @@ from custom_components.hass_codex_tunnel_mcp.updater import (
 )
 
 TUNNEL_ID = "tunnel_0123456789abcdef0123456789abcdef"
-ELIGIBLE_AT = datetime(2026, 11, 7, 20, 26, 10, tzinfo=UTC)
+RELEASE_PUBLISHED_AT = {
+    "v0.0.19": datetime(2026, 10, 30, 20, 26, 10, tzinfo=UTC),
+    "v0.0.20": datetime(2026, 11, 6, 22, 5, 17, tzinfo=UTC),
+}
 RELEASE_DIGESTS = {
     "v0.0.18": {
         "amd64": "3c82307316acd93c88a384b62af1d81d3f4cb0efa975f9c0bfaef922866a04c4",
@@ -49,6 +53,10 @@ RELEASE_DIGESTS = {
     "v0.0.19": {
         "amd64": "9ee9448592345a9dd1517fb79791ab54d24f051142eb92bcbe8cd355effc9142",
         "arm64": "5a19e556c4a8736ab7a6fde6f0568f6e7411fa2dff21186fc15bc30e9b98a603",
+    },
+    "v0.0.20": {
+        "amd64": "2f06ce5a17425c74a827e7038692936e973ae388e7eec728c40efee1fb5f139d",
+        "arm64": "2d89946c23111eb910f1bd4e7c5c4bfedfd73ac0dc9828aefc36294cfeae491f",
     },
 }
 
@@ -90,6 +98,8 @@ class LocalTunnel:
         self.control_status = 200
         self.mcp_status = 200
         self.base_url = ""
+        self.challenge = "Bearer"
+        self.metadata_handler = None
 
     def entry(self, static_token=True):
         return {
@@ -124,10 +134,16 @@ class LocalTunnel:
 
     async def mcp(self, request):
         headers = request.headers.copy()
-        body = await request.json() if request.method == "POST" else {}
+        body = (
+            await request.json()
+            if request.method == "POST" and request.can_read_body
+            else {}
+        )
         self.mcp_requests.append((headers, body))
         if request.headers.get("Authorization") != "Bearer fixture-ha-token":
-            return web.Response(status=401, headers={"WWW-Authenticate": "Bearer"})
+            return web.Response(
+                status=401, headers={"WWW-Authenticate": self.challenge}
+            )
         if self.mcp_status != 200:
             return web.Response(status=self.mcp_status)
         if request.method != "POST":
@@ -159,8 +175,19 @@ class LocalTunnel:
             headers=response_headers,
         )
 
+    async def metadata(self, request):
+        if self.metadata_handler is not None:
+            return await self.metadata_handler(request)
+        return web.Response(status=404)
+
     async def rpc(
-        self, method, params=None, *, auth="fixture-ha-token", notification=False
+        self,
+        method,
+        params=None,
+        *,
+        auth="fixture-ha-token",
+        notification=False,
+        channel="main",
     ):
         number = len(self.responses)
         queue_id, rpc_id = f"queue-{number}", f"rpc-{number}"
@@ -175,7 +202,17 @@ class LocalTunnel:
             "Mcp-Protocol-Version": ["2025-11-25"],
             "X-Request-Id": ["connector-request-id"],
         }
-        if method != "initialize":
+        if channel == "harpoon":
+            headers["Mcp-Protocol-Version"] = ["2026-07-28"]
+            body.setdefault("params", {})["_meta"] = {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {
+                    "name": "oauth-fixture",
+                    "version": "1",
+                },
+                "io.modelcontextprotocol/clientCapabilities": {},
+            }
+        if method != "initialize" and channel == "main":
             headers["Mcp-Session-Id"] = ["fixture-session"]
         if auth:
             headers["Authorization"] = [f"Bearer {auth}"]
@@ -185,7 +222,7 @@ class LocalTunnel:
             {
                 "command_type": "jsonrpc",
                 "request_id": queue_id,
-                "channel": "main",
+                "channel": channel,
                 "jsonrpc": body,
                 "headers": headers,
                 "shard_token": queue_id,
@@ -200,10 +237,13 @@ async def local_tunnel(release_binaries, monkeypatch, tmp_path):
     # Prevent inherited runtime settings/proxies affecting
     # the fixture. TunnelManager supplies the two fake secrets itself.
     for name in list(os.environ):
+        if name == "TUNNEL_CLIENT_ARCHIVE_DIR":
+            continue
         if name.startswith(
-            ("MCP_", "CONTROL_PLANE_", "TUNNEL_", "HEALTH_")
+            ("MCP_", "CONTROL_PLANE_", "TUNNEL_", "HEALTH_", "HARPOON_")
         ) or name in {
             "OPENAI_API_KEY",
+            "CA_BUNDLE",
             "HA_MCP_AUTH_HEADER",
             "HTTP_PROXY",
             "HTTPS_PROXY",
@@ -220,6 +260,7 @@ async def local_tunnel(release_binaries, monkeypatch, tmp_path):
     app = web.Application()
     app.router.add_route("*", "/api/mcp", fixture.mcp)
     app.router.add_route("*", "/v1/tunnels/{tail:.*}", fixture.control)
+    app.router.add_route("GET", "/{tail:.*}", fixture.metadata)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "127.0.0.1", 0)
@@ -232,7 +273,7 @@ async def local_tunnel(release_binaries, monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version", ["v0.0.18", "v0.0.19"])
+@pytest.mark.parametrize("version", list(RELEASE_DIGESTS))
 @pytest.mark.parametrize(
     "static_token", [True, False], ids=["static-auth", "forwarded-auth"]
 )
@@ -280,7 +321,7 @@ async def test_release_http_auth_health_and_request_ids(
             response_headers = reply.get("resp_headers", {})
             expected = (
                 ["mcp-response-id"]
-                if version == "v0.0.19" and mode == "present"
+                if version != "v0.0.18" and mode == "present"
                 else None
             )
             assert response_headers.get("X-Tunnel-Mcp-Request-Id") == expected
@@ -358,7 +399,7 @@ async def test_release_http_auth_health_and_request_ids(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version", ["v0.0.18", "v0.0.19"])
+@pytest.mark.parametrize("version", list(RELEASE_DIGESTS))
 async def test_release_control_plane_auth_failure_is_diagnostic(
     release_binaries,
     local_tunnel,
@@ -373,7 +414,7 @@ async def test_release_control_plane_auth_failure_is_diagnostic(
     )
     try:
         await manager.start(entry)
-        # This is the existing upstream contract in BOTH releases: /readyz
+        # This is the existing upstream contract in all tested releases: /readyz
         # gates MCP/OAuth startup, while polling auth errors are component data.
         assert await manager.wait_until_healthy(15)
         base_url = (
@@ -403,20 +444,41 @@ async def test_release_control_plane_auth_failure_is_diagnostic(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("candidate_ready", [True, False])
+@pytest.mark.parametrize(
+    ("old_version", "new_version", "manual_early"),
+    [
+        ("v0.0.18", "v0.0.19", False),
+        ("v0.0.18", "v0.0.20", False),
+        ("v0.0.19", "v0.0.20", False),
+        ("v0.0.19", "v0.0.20", True),
+    ],
+)
 async def test_release_automatic_update_and_rollback(
     release_binaries,
     local_tunnel,
     tmp_path,
     monkeypatch,
     candidate_ready,
+    old_version,
+    new_version,
+    manual_early,
 ):
-    old_asset, old_binary = release_binaries["v0.0.18"]
-    new_asset, _ = release_binaries["v0.0.19"]
+    old_asset, _ = release_binaries[old_version]
+    new_asset, _ = release_binaries[new_version]
+    eligible_at = RELEASE_PUBLISHED_AT[new_version] + timedelta(days=8)
+    install_at = (
+        RELEASE_PUBLISHED_AT[new_version] + timedelta(days=1)
+        if manual_early
+        else eligible_at
+    )
+    install_options = (
+        {"selected_version": new_version} if manual_early else {"automatic": True}
+    )
     releases = parse_github_releases(
         [
             {
-                "tag_name": "v0.0.19",
-                "published_at": "2026-10-30T20:26:10Z",
+                "tag_name": new_version,
+                "published_at": RELEASE_PUBLISHED_AT[new_version].isoformat(),
                 "draft": False,
                 "prerelease": False,
                 "assets": [
@@ -434,7 +496,18 @@ async def test_release_automatic_update_and_rollback(
     )
     monkeypatch.setattr(updater_module, "create_issue", AsyncMock())
     monkeypatch.setattr(updater_module, "delete_issue", AsyncMock())
-    updater = TunnelClientUpdater(Mock(), Mock(), old_binary.parent.parent, Mock())
+    # Use a separate installation root so the updater really installs the
+    # candidate. Only the network download is replaced with the official ZIP.
+    install_root = tmp_path / "update-bin"
+    archive_dir = Path(os.environ["TUNNEL_CLIENT_ARCHIVE_DIR"])
+    install_from_zip_bytes(
+        (archive_dir / old_asset.filename).read_bytes(),
+        old_asset,
+        install_root / old_version,
+    )
+    download = Mock(return_value=(archive_dir / new_asset.filename).read_bytes())
+    monkeypatch.setattr(binary_module, "_download_bytes", download)
+    updater = TunnelClientUpdater(Mock(), Mock(), install_root, Mock())
     updater._lock = asyncio.Lock()
     # Existing pinned installs may have no saved asset metadata.
     updater.state = TunnelClientUpdaterState(active_version=old_asset.version)
@@ -449,12 +522,13 @@ async def test_release_automatic_update_and_rollback(
         deferred = await updater.async_update_tunnel_client(
             manager,
             entry,
-            now=ELIGIBLE_AT - timedelta(microseconds=1),
+            now=install_at - timedelta(microseconds=1),
             automatic=True,
         )
         assert deferred.candidate_asset is None
-        assert deferred.deferred_until == ELIGIBLE_AT.isoformat()
+        assert deferred.deferred_until == eligible_at.isoformat()
         assert manager.process is previous_process
+        download.assert_not_called()
         if not candidate_ready:
             # Reject only the candidate's MCP startup probe. The actual
             # readiness watcher and real old binary perform failure/rollback.
@@ -469,31 +543,389 @@ async def test_release_automatic_update_and_rollback(
             monkeypatch.setattr(updater_module, "READINESS_TIMEOUT", 3)
             with pytest.raises(TunnelClientError, match="did not become ready"):
                 await updater.async_update_tunnel_client(
-                    manager, entry, now=ELIGIBLE_AT, automatic=True
+                    manager, entry, now=install_at, **install_options
                 )
-            assert manager.status.version == updater.state.active_version == "v0.0.18"
+            assert manager.status.version == updater.state.active_version == old_version
             assert manager.status.healthy
-            assert "v0.0.19" in updater.state.failed_versions
+            download.assert_called_once_with(new_asset.url)
+            assert new_version in updater.state.failed_versions
             assert updater.state.last_update is None
             assert (await local_tunnel.rpc("tools/list"))["resp_code"] == 200
             rolled_back_process = manager.process
             skipped = await updater.async_update_tunnel_client(
-                manager, entry, now=ELIGIBLE_AT + timedelta(days=1), automatic=True
+                manager, entry, now=eligible_at + timedelta(days=1), automatic=True
             )
             assert skipped.candidate_asset is None
             assert manager.process is rolled_back_process
             return
         await updater.async_update_tunnel_client(
-            manager, entry, now=ELIGIBLE_AT, automatic=True
+            manager, entry, now=install_at, **install_options
         )
+        download.assert_called_once_with(new_asset.url)
         assert previous_process.returncode == 0
-        assert updater.state.active_version == "v0.0.19"
-        assert manager.status.version == "v0.0.19"
+        assert updater.state.active_version == new_version
+        assert manager.status.version == new_version
         assert (await local_tunnel.rpc("tools/list"))["resp_code"] == 200
-        assert updater.state.previous_version == "v0.0.18"
+        assert updater.state.previous_version == old_version
         assert updater.state.previous_asset is None
         assert await updater.async_rollback(manager, entry)
-        assert manager.status.version == updater.state.active_version == "v0.0.18"
+        assert manager.status.version == updater.state.active_version == old_version
         assert (await local_tunnel.rpc("tools/list"))["resp_code"] == 200
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", ["v0.0.19", "v0.0.20"])
+@pytest.mark.parametrize("body_timeout", [False, True], ids=["headers", "body"])
+async def test_release_oauth_timeout_with_404_recovers(
+    release_binaries, local_tunnel, tmp_path, monkeypatch, caplog, version, body_timeout
+):
+    """An actual five-second discovery deadline, with a missing path fallback."""
+    import logging
+
+    caplog.set_level(logging.INFO)
+    monkeypatch.setenv("LOG_LEVEL", "info")
+    root_hits = 0
+    paths = []
+    first_request = asyncio.Event()
+    release_first_request = asyncio.Event()
+    allow_recovered_response = asyncio.Event()
+
+    async def metadata(request):
+        nonlocal root_hits
+        paths.append(request.path)
+        if request.path != "/.well-known/oauth-protected-resource":
+            return web.Response(status=404, text="not found")
+        root_hits += 1
+        if root_hits == 1:
+            first_request.set()
+            if body_timeout:
+                response = web.StreamResponse(
+                    headers={"Content-Type": "application/json"}
+                )
+                await response.prepare(request)
+                await response.write(b'{"resource":')
+                await release_first_request.wait()
+                return response
+            await release_first_request.wait()
+        await allow_recovered_response.wait()
+        return web.json_response({"resource": local_tunnel.base_url + "/api/mcp"})
+
+    local_tunnel.metadata_handler = metadata
+    manager = TunnelManager(
+        lambda force: release_binaries[version][1], tmp_path / "run"
+    )
+    try:
+        await manager.start(local_tunnel.entry())
+        await asyncio.wait_for(first_request.wait(), 5)
+        assert not manager.status.healthy
+        # A second root request proves a retry after the real deadline. The
+        # v0.0.19 control permanently settles discovery after the mixed failure.
+        async with asyncio.timeout(15):
+            while root_hits < 2:
+                if version == "v0.0.19" and "OAuth discovery failed" in caplog.text:
+                    break
+                await asyncio.sleep(0.05)
+        assert "/.well-known/oauth-protected-resource/api/mcp" in paths
+        assert not manager.status.healthy
+        if version == "v0.0.20":
+            assert root_hits >= 2
+            allow_recovered_response.set()
+            assert await manager.wait_until_healthy(10)
+            assert (await local_tunnel.rpc("tools/list"))["resp_code"] == 200
+        else:
+            assert root_hits == 1
+            assert "OAuth discovery failed; retrying" not in caplog.text
+    finally:
+        release_first_request.set()
+        allow_recovered_response.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_release_expected_auth_probe_is_info(
+    release_binaries, local_tunnel, tmp_path, monkeypatch, caplog
+):
+    import logging
+
+    monkeypatch.setenv("LOG_LEVEL", "info")
+    caplog.set_level(logging.INFO)
+    manager = TunnelManager(
+        lambda force: release_binaries["v0.0.20"][1], tmp_path / "run"
+    )
+    try:
+        await manager.start(local_tunnel.entry(static_token=False))
+        assert await manager.wait_until_healthy(15)
+        assert (await local_tunnel.rpc("tools/list"))["resp_code"] == 200
+        assert (
+            "MCP server requires authentication; startup probe reached server"
+            in caplog.text
+        )
+        assert "failed to connect to mcp" not in caplog.text
+        assert (
+            "MCP startup probe completed with failure; starting control-plane poller for compatibility"
+            not in caplog.text
+        )
+        # The HA log reader maps stderr to WARNING; the embedded upstream
+        # record is INFO. Do not mistake HA's wrapper severity for a new error.
+        lines = [
+            r.message
+            for r in caplog.records
+            if "startup probe reached server" in r.message
+        ]
+        assert any("level=INFO" in line for line in lines)
+    finally:
+        await manager.stop()
+
+
+@pytest_asyncio.fixture
+async def oauth_origin(local_tunnel, tmp_path, monkeypatch):
+    """TLS metadata and token endpoint on a different origin, with a real CA."""
+    import ipaddress
+    import ssl
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "loopback OAuth fixture")]
+    )
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC) - timedelta(days=1))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+            ),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    cert_file, key_file = tmp_path / "ca.pem", tmp_path / "key.pem"
+    cert_file.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_file.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert_file, key_file)
+    state = {"url": "", "requests": [], "third_hits": 0}
+
+    async def third(request):
+        state["third_hits"] += 1
+        return web.Response(text="must not be reached")
+
+    third_app = web.Application()
+    third_app.router.add_route("*", "/{tail:.*}", third)
+    third_runner = web.AppRunner(third_app)
+    await third_runner.setup()
+    third_site = web.TCPSite(third_runner, "127.0.0.1", 0, ssl_context=context)
+    await third_site.start()
+    third_url = f"https://127.0.0.1:{third_site._server.sockets[0].getsockname()[1]}"
+
+    async def handler(request):
+        state["requests"].append((request.path, dict(request.headers)))
+        origin = state["url"]
+        if request.path == "/metadata":
+            return web.json_response(
+                {
+                    "resource": origin + "/resource",
+                    "authorization_servers": [origin + "/issuer"],
+                }
+            )
+        if request.path in (
+            "/.well-known/oauth-authorization-server/issuer",
+            "/issuer/.well-known/oauth-authorization-server",
+        ):
+            return web.json_response(
+                {
+                    "issuer": origin + "/issuer",
+                    "authorization_endpoint": origin + "/authorize",
+                    "token_endpoint": origin + "/token",
+                    "registration_endpoint": origin + "/register",
+                    "revocation_endpoint": origin + "/revoke",
+                    "introspection_endpoint": third_url + "/introspect",
+                    "response_types_supported": ["code"],
+                    "code_challenge_methods_supported": ["S256"],
+                }
+            )
+        if request.path == "/token":
+            form = await request.post()
+            if (
+                form.get("code") != "fixture-code"
+                or form.get("resource") != origin + "/resource"
+            ):
+                return web.Response(status=400)
+            return web.json_response(
+                {"access_token": "fixture-ha-token", "token_type": "Bearer"}
+            )
+        if request.path == "/revoke":
+            raise web.HTTPTemporaryRedirect(third_url + "/redirect")
+        return web.Response(status=404)
+
+    app = web.Application()
+    app.router.add_route("*", "/{tail:.*}", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0, ssl_context=context)
+    await site.start()
+    state["url"] = f"https://127.0.0.1:{site._server.sockets[0].getsockname()[1]}"
+    local_tunnel.challenge = f'Bearer resource_metadata="{state["url"]}/metadata"'
+    monkeypatch.setenv("CA_BUNDLE", str(cert_file))
+    try:
+        yield state
+    finally:
+        await runner.cleanup()
+        await third_runner.cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("version", "forward"), [("v0.0.19", False), ("v0.0.20", False), ("v0.0.20", True)]
+)
+async def test_release_separate_oauth_origin(
+    release_binaries,
+    local_tunnel,
+    oauth_origin,
+    tmp_path,
+    monkeypatch,
+    version,
+    forward,
+):
+    import base64
+    import json
+    from urllib.parse import urlencode
+
+    origin = oauth_origin["url"]
+    monkeypatch.setenv("MCP_OAUTH_TRUSTED_ORIGINS", origin)
+    if forward:
+        monkeypatch.setenv("HARPOON_OAUTH_FORWARD_ORIGINS", origin)
+    # Retain an MCP-only discovery secret to detect cross-origin leakage.
+    monkeypatch.setenv(
+        "MCP_DISCOVERY_EXTRA_HEADERS", "X-MCP-Secret: fixture-mcp-secret"
+    )
+    manager = TunnelManager(
+        lambda force: release_binaries[version][1], tmp_path / "run"
+    )
+
+    async def call(name, arguments):
+        return await local_tunnel.rpc(
+            "tools/call",
+            {"name": name, "arguments": arguments},
+            channel="harpoon",
+            auth=None,
+        )
+
+    def structured(reply):
+        assert reply["resp_code"] == 200, reply
+        result = reply["resp_json"]["result"]
+        assert not result.get("isError"), result
+        return result["structuredContent"]
+
+    def http_json(reply):
+        result = structured(reply)
+        assert result["status_code"] == 200
+        return json.loads(base64.b64decode(result["body_base64"]))
+
+    try:
+        await manager.start(local_tunnel.entry(static_token=False))
+        assert await manager.wait_until_healthy(15), manager.status
+        listed = await call("list_targets", {"categories": ["oauth"]})
+        assert any(path == "/metadata" for path, _ in oauth_origin["requests"])
+        assert any(
+            headers.get("X-MCP-Secret") == "fixture-mcp-secret"
+            for headers, _ in local_tunnel.mcp_requests
+        ), "the scoped discovery credential must actually reach its MCP origin"
+        if not forward:
+            assert listed["resp_code"] == 400
+            assert "unsupported channel" in str(listed)
+            assert (await local_tunnel.rpc("tools/list"))["resp_code"] == 200
+            return
+        targets = structured(listed)["targets"]
+        labels = {}
+        for target in targets:
+            assert target["source"] == target["category"] == "oauth"
+            for role in (
+                "source-url",
+                "auth-server-metadata",
+                "token-endpoint",
+                "revocation-endpoint",
+            ):
+                if role in target["tags"]:
+                    labels[role] = target["label"]
+            assert "introspection-endpoint" not in target["tags"]
+        assert {"source-url", "token-endpoint", "revocation-endpoint"} <= labels.keys()
+        prmd = http_json(
+            await call("call_target", {"label": labels["source-url"], "method": "GET"})
+        )
+        assert prmd["resource"] == origin + "/resource"
+        token = http_json(
+            await call(
+                "call_target",
+                {
+                    "label": labels["token-endpoint"],
+                    "method": "POST",
+                    "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+                    "body": urlencode(
+                        {
+                            "grant_type": "authorization_code",
+                            "code": "fixture-code",
+                            "resource": prmd["resource"],
+                        }
+                    ),
+                },
+            )
+        )
+        response = await local_tunnel.rpc(
+            "tools/call", {"name": "echo", "arguments": {}}, auth=token["access_token"]
+        )
+        assert response["resp_code"] == 200
+        for label in ("oauth-introspection-endpoint-0", labels["revocation-endpoint"]):
+            denied = await call("call_target", {"label": label, "method": "POST"})
+            envelope = denied["resp_json"]
+            assert envelope.get("error") or envelope.get("result", {}).get("isError"), (
+                denied
+            )
+    finally:
+        await manager.stop()
+        assert oauth_origin["third_hits"] == 0
+        for _, headers in oauth_origin["requests"]:
+            assert "Authorization" not in headers
+            assert "X-MCP-Secret" not in headers
+
+
+@pytest.mark.asyncio
+async def test_release_forward_approval_does_not_grant_discovery_trust(
+    release_binaries, local_tunnel, oauth_origin, tmp_path, monkeypatch, caplog
+):
+    import logging
+
+    caplog.set_level(logging.INFO)
+    monkeypatch.setenv("LOG_LEVEL", "info")
+    monkeypatch.setenv("HARPOON_OAUTH_FORWARD_ORIGINS", oauth_origin["url"])
+    manager = TunnelManager(
+        lambda force: release_binaries["v0.0.20"][1], tmp_path / "run"
+    )
+    try:
+        await manager.start(local_tunnel.entry(static_token=False))
+        async with asyncio.timeout(10):
+            while "OAuth discovery failed" not in caplog.text:
+                await asyncio.sleep(0.05)
+        assert not manager.status.healthy
+        assert "destination origin is not trusted" in caplog.text
+        assert oauth_origin["requests"] == []
     finally:
         await manager.stop()

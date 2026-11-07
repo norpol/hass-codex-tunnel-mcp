@@ -32,7 +32,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p "$RUNNER_TEMP/tunnel-releases"
-          for version in v0.0.18 v0.0.19; do
+          for version in v0.0.18 v0.0.19 v0.0.20; do
             asset="tunnel-client-${version}-linux-${ARCH}.zip"
             curl --fail --location --retry 3 --max-time 120 \
               "https://github.com/openai/tunnel-client/releases/download/${version}/${asset}" \

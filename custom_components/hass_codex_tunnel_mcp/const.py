@@ -24,7 +24,7 @@ STORAGE_DIR = ".hass_codex_tunnel_mcp"
 RUN_DIR_NAME = "run"
 BIN_DIR_NAME = "bin"
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "button", "select"]
 
 ATTR_TUNNEL_STATE = "tunnel_state"
 ATTR_TUNNEL_HEALTHY = "tunnel_healthy"
