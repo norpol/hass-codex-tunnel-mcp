@@ -845,6 +845,10 @@ async def test_release_separate_oauth_origin(
         assert await manager.wait_until_healthy(15), manager.status
         listed = await call("list_targets", {"categories": ["oauth"]})
         assert any(path == "/metadata" for path, _ in oauth_origin["requests"])
+        assert any(
+            headers.get("X-MCP-Secret") == "fixture-mcp-secret"
+            for headers, _ in local_tunnel.mcp_requests
+        ), "the scoped discovery credential must actually reach its MCP origin"
         if not forward:
             assert listed["resp_code"] == 400
             assert "unsupported channel" in str(listed)
