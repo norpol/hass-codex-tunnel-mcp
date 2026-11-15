@@ -276,7 +276,8 @@ version when one is available.
 ## Specifications and change workflow
 
 The [OpenSpec baseline](openspec/specs/) describes current
-[MCP startup behavior](openspec/specs/mcp-startup/spec.md) and the
+[MCP startup behavior](openspec/specs/mcp-startup/spec.md),
+[tunnel-client updates](openspec/specs/tunnel-client-updates/spec.md), and the
 [installation and maintenance guarantees](openspec/specs/marketplace-installation/spec.md).
 Marketplace/HACS procedures and migration guidance live in the installation
 sections above.

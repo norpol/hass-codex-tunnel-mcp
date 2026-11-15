@@ -2,9 +2,9 @@ schema: spec-driven
 context: |
   This is a public Home Assistant custom integration. Preserve compatibility
   with its supported Linux amd64 and arm64 hosts when planning runtime changes.
-  The initial baseline covers MCP startup and integration-specific installation
-  and maintenance guarantees. README owns Marketplace/HACS procedures; other
-  integration capabilities are not yet comprehensively specified.
+  The baseline covers MCP startup, tunnel-client updates, and integration-specific
+  installation and maintenance guarantees. README owns Marketplace/HACS procedures;
+  other integration capabilities are not yet comprehensively specified.
   Distinguish behavior owned by this integration from Home Assistant or OpenSpec.
   Use synthetic credentials and generic examples. Never include live tokens,
   tunnel IDs, private endpoints, household data, raw logs, or developer home paths.
