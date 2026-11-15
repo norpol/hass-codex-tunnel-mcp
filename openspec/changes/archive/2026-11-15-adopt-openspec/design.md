@@ -57,12 +57,20 @@ baseline; no runtime test implementation is needed for this tooling change.
 | Invalid persisted URL remains visible during startup | `tests/test_setup_retry.py::test_invalid_url_still_creates_repair_during_startup` |
 | Unexpected tunnel exceptions remain visible | `tests/test_setup_retry.py::test_unexpected_start_failure_is_still_logged` |
 | Successful responses, 401/403/405, optional bearer header | `tests/test_mcp_url.py::test_probe_accepts_reachable_endpoint` |
-| Sanitized HTTP/transport failures and exception chains | `tests/test_mcp_url.py::test_probe_failure_is_retryable_and_sanitized` and startup log assertions |
+| Sanitized handled HTTP 404/server errors, timeouts, connection failures, and exception chains | `tests/test_mcp_url.py::test_probe_failure_is_retryable_and_sanitized` and startup log assertions |
 | Repair URL redaction | `tests/test_mcp_url.py::test_redact_mcp_url_removes_secret_path` and startup repair assertions |
 | Marketplace installation, migration, update entity, and legacy guide | Manual README review against the official sources below; external Home Assistant UI behavior, not an automated installation test |
 | Supported binary architectures | `tests/test_binary.py::test_select_asset_for_linux_amd64_and_arm64` and platform selection/setup code review |
 | Separate executable hold, override, verification, and rollback guidance | README/code review plus existing `tests/test_manual_update_controls.py` and `tests/test_updater.py` coverage |
 | Custom-integration warning and maintenance connection guidance | Manual README review; loader behavior and the updater's tunnel stop/start sequence |
+
+The redaction contract covers failures converted to `MCPProbeError`: HTTP
+404/server errors raised as `HTTPError`, and `TimeoutError`, `OSError`, or
+`URLError` failures. It does not cover every HTTP or transport exception.
+`http.client.BadStatusLine` and `http.client.InvalidURL` currently escape that
+conversion and reach the generic setup error log and repair with their original
+details. Extending redaction to those cases requires runtime handling and
+regression tests; this baseline correction does not change runtime behavior.
 
 Authoritative external documentation:
 

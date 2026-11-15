@@ -91,13 +91,15 @@ working authentication or a successful MCP request.
 
 ### Requirement: Sanitize expected probe diagnostics
 
-Expected probe error messages and their displayed exception chains SHALL omit
-credentials, secret URL paths and query values, and raw underlying exception
-details. The unreachable-URL repair SHALL redact the endpoint path and query.
+For handled HTTP 404/server errors, timeouts, and connection failures, probe
+error messages and their displayed exception chains SHALL omit credentials,
+secret URL paths and query values, and raw underlying exception details. The
+unreachable-URL repair for those failures SHALL redact the endpoint path and
+query. This redaction contract does not cover unexpected setup exceptions.
 
-#### Scenario: Underlying failure contains private details
+#### Scenario: Handled probe failure contains private details
 
-- **WHEN** an HTTP or transport exception contains a secret URL or arbitrary private detail
+- **WHEN** a handled HTTP 404/server error, timeout, or connection failure contains a secret URL or arbitrary private detail
 - **THEN** the retry message and exception chain expose only the sanitized failure reason
 - **AND** the repair omits secret path and query content
 
