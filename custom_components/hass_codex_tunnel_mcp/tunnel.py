@@ -197,6 +197,10 @@ class TunnelManager:
         env = os.environ.copy()
         env["CONTROL_PLANE_API_KEY"] = str(entry_data[CONF_API_KEY])
         ha_mcp_token = str(entry_data.get(CONF_HA_MCP_BEARER_TOKEN) or "").strip()
+        # Static credentials need no OAuth challenge/metadata probes. Use the
+        # v0.0.21 environment setting so older rollback binaries can ignore it
+        # without rejecting an unknown CLI flag. Recompute on every start.
+        env["MCP_OAUTH_DISCOVERY"] = "disabled" if ha_mcp_token else "auto"
         if ha_mcp_token:
             env["HA_MCP_AUTH_HEADER"] = f"Bearer {ha_mcp_token}"
         # Mask configured credentials/secret MCP URLs, including JSON-escaped

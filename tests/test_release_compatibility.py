@@ -7,6 +7,7 @@ Home Assistant instance, OpenAI credentials, or external service is used.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -44,6 +45,7 @@ TUNNEL_ID = "tunnel_0123456789abcdef0123456789abcdef"
 RELEASE_PUBLISHED_AT = {
     "v0.0.19": datetime(2026, 10, 30, 20, 26, 10, tzinfo=UTC),
     "v0.0.20": datetime(2026, 11, 6, 22, 5, 17, tzinfo=UTC),
+    "v0.0.21": datetime(2026, 11, 14, 18, 25, 22, tzinfo=UTC),
 }
 RELEASE_DIGESTS = {
     "v0.0.18": {
@@ -57,6 +59,10 @@ RELEASE_DIGESTS = {
     "v0.0.20": {
         "amd64": "2f06ce5a17425c74a827e7038692936e973ae388e7eec728c40efee1fb5f139d",
         "arm64": "2d89946c23111eb910f1bd4e7c5c4bfedfd73ac0dc9828aefc36294cfeae491f",
+    },
+    "v0.0.21": {
+        "amd64": "9e91a539e3ae1c436d499f216a1d7514b3c86cc7779032f41b2a05821d74b03a",
+        "arm64": "78a5202e0737199208a0c3e8f7c123805634546b0a587b83303b973b7f56aca6",
     },
 }
 
@@ -100,6 +106,8 @@ class LocalTunnel:
         self.base_url = ""
         self.challenge = "Bearer"
         self.metadata_handler = None
+        self.metadata_requests = []
+        self.empty_authenticated_posts = 0
 
     def entry(self, static_token=True):
         return {
@@ -134,9 +142,10 @@ class LocalTunnel:
 
     async def mcp(self, request):
         headers = request.headers.copy()
+        has_body = request.can_read_body
         body = (
             await request.json()
-            if request.method == "POST" and request.can_read_body
+            if request.method == "POST" and has_body
             else {}
         )
         self.mcp_requests.append((headers, body))
@@ -148,6 +157,17 @@ class LocalTunnel:
             return web.Response(status=self.mcp_status)
         if request.method != "POST":
             return web.Response(status=405)
+        if not has_body:
+            # HA authenticates before parsing JSON and rejects empty OAuth probes.
+            self.empty_authenticated_posts += 1
+            return web.json_response(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": "Parse error"},
+                },
+                status=400,
+            )
         method = body.get("method")
         if method == "notifications/initialized":
             return web.Response(status=202)
@@ -176,6 +196,7 @@ class LocalTunnel:
         )
 
     async def metadata(self, request):
+        self.metadata_requests.append(request.path)
         if self.metadata_handler is not None:
             return await self.metadata_handler(request)
         return web.Response(status=404)
@@ -399,6 +420,81 @@ async def test_release_http_auth_health_and_request_ids(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("version", ["v0.0.20", "v0.0.21"])
+@pytest.mark.parametrize("static_token", [True, False])
+async def test_release_ha_oauth_probes_follow_authentication_mode(
+    release_binaries, local_tunnel, tmp_path, monkeypatch, caplog, version, static_token
+):
+    """Reproduce HA's empty POST error and HTTP OAuth registration warnings."""
+    fixture = local_tunnel
+    monkeypatch.setenv("LOG_LEVEL", "warn")
+    caplog.set_level(logging.WARNING)
+
+    async def metadata(request):
+        base = fixture.base_url
+        if request.path == "/.well-known/oauth-protected-resource":
+            return web.json_response(
+                {"resource": base + "/api/mcp", "authorization_servers": [base]}
+            )
+        if request.path == "/.well-known/oauth-authorization-server":
+            return web.json_response(
+                {
+                    "issuer": base,
+                    "authorization_endpoint": base + "/auth/authorize",
+                    "token_endpoint": base + "/auth/token",
+                    "revocation_endpoint": base + "/auth/revoke",
+                    "response_types_supported": ["code"],
+                    "code_challenge_methods_supported": ["S256"],
+                }
+            )
+        return web.Response(status=404)
+
+    fixture.metadata_handler = metadata
+    manager = TunnelManager(
+        lambda force: release_binaries[version][1], tmp_path / "run"
+    )
+    try:
+        await manager.start(fixture.entry(static_token))
+        assert await manager.wait_until_healthy(15), manager.status
+        base = urlsplit(manager.status.health_url)._replace(path="").geturl()
+        async with ClientSession() as session:
+            async with session.get(base + "/health?details=true") as response:
+                health = await response.json()
+        oauth = health["components"]["oauth"]
+        if version == "v0.0.21" and static_token:
+            assert oauth["state"] == "disabled"
+            assert oauth["reason_code"] == "disabled_by_configuration"
+            assert fixture.metadata_requests == []
+            assert fixture.empty_authenticated_posts == 0
+            assert "host auto-registration failed" not in caplog.text
+        else:
+            assert oauth["state"] == "complete"
+            assert "/.well-known/oauth-protected-resource" in fixture.metadata_requests
+            assert fixture.empty_authenticated_posts == int(static_token)
+            assert "host auto-registration failed" in caplog.text
+            assert "base URL must use https" in caplog.text
+
+        # Static and forwarded credentials still authenticate normal MCP calls.
+        auth = None if static_token else "fixture-ha-token"
+        initialized = await fixture.rpc(
+            "initialize",
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "ha-regression", "version": "1"},
+            },
+            auth=auth,
+        )
+        assert initialized["resp_code"] == 200
+        assert (await fixture.rpc("tools/list", auth=auth))["resp_code"] == 200
+        reply = await fixture.rpc("tools/call", {"name": "echo"}, auth=auth)
+        assert reply["resp_json"]["result"]["content"][0]["text"] == "fixture-ok"
+        assert (await fixture.rpc("tools/list", auth="wrong-token"))["resp_code"] == 401
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("version", list(RELEASE_DIGESTS))
 async def test_release_control_plane_auth_failure_is_diagnostic(
     release_binaries,
@@ -451,6 +547,8 @@ async def test_release_control_plane_auth_failure_is_diagnostic(
         ("v0.0.18", "v0.0.20", False),
         ("v0.0.19", "v0.0.20", False),
         ("v0.0.19", "v0.0.20", True),
+        ("v0.0.20", "v0.0.21", False),
+        ("v0.0.20", "v0.0.21", True),
     ],
 )
 async def test_release_automatic_update_and_rollback(
