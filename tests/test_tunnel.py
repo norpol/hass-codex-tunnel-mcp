@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
@@ -21,6 +23,190 @@ from custom_components.hass_codex_tunnel_mcp.tunnel import (
     build_mcp_server_url,
     build_tunnel_command,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", [logging.INFO, logging.WARNING])
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("TRACE", logging.DEBUG),
+        ("DEBUG", logging.DEBUG),
+        ("INFO", logging.INFO),
+        ("WARN", logging.WARNING),
+        ("WARNING", logging.WARNING),
+        ("ERROR", logging.ERROR),
+        ("FATAL", logging.CRITICAL),
+        ("CRITICAL", logging.CRITICAL),
+    ],
+)
+@pytest.mark.parametrize("style", ["plain", "default", "struct-text", "json"])
+async def test_log_stream_uses_message_severity(
+    tmp_path, caplog, fallback, name, expected, style
+):
+    """Both pipes must honor the header, even when the body names another level."""
+    message = "forwarded command; INFO WARN ERROR level=DEBUG"
+    lines = {
+        "plain": f"{name} {message}",
+        # Go default logger and slog formats observed in v0.0.18 through v0.0.20.
+        "default": f"2026/11/15 08:30:00 {name} {message}",
+        "struct-text": f'time=2026-11-15T08:30:00.123Z level={name} msg="{message}"',
+        "json": json.dumps(
+            {"time": "2026-11-15T08:30:00Z", "level": name, "msg": message}
+        ),
+    }
+    stream = asyncio.StreamReader()
+    stream.feed_data((lines[style] + "\n").encode())
+    stream.feed_eof()
+    manager = TunnelManager(lambda force: None, tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    await manager._log_stream(stream, fallback)
+
+    assert [(r.levelno, r.getMessage()) for r in caplog.records] == [
+        (expected, f"tunnel-client: {lines[style]}")
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", [logging.INFO, logging.WARNING])
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"unstructured diagnostic mentioning INFO and level=DEBUG",
+        b"INFORMATION is not a severity",
+        b"INFO_suffix is not a severity",
+        b"level=INFO_suffix msg=unknown",
+        b"level=NOTICE msg=unknown",
+        b'time=2026-11-15T08:30:00Z msg="level=INFO"',
+        b'msg="level=INFO" level=ERROR',
+        b"2026/11/15 broken-time INFO malformed timestamp",
+        b'{"level":"INFO",',
+        b'{"level":"INFO"} trailing junk',
+        b'{"level":"unknown","msg":"INFO"}',
+        b'{"level":null}',
+        b'{"level":30}',
+        b'{"level":true}',
+        b'{"level":[]}',
+        b'{"level":{}}',
+        b'{"msg":"INFO","context":{"level":"DEBUG"}}',
+        b'[{"level":"INFO"}]',
+        b'"INFO"',
+        b"null",
+        b"\xff malformed UTF-8 level=INFO",
+        pytest.param(
+            b'{"level":"INFO","context":' + b"[" * 1100,
+            id="truncated-nested-json",
+        ),
+        pytest.param(
+            b'{"level":"INFO","value":' + b"9" * 5000 + b"}",
+            id="oversized-json-integer",
+        ),
+    ],
+)
+async def test_log_stream_falls_back_without_parsing_message_body(
+    tmp_path, caplog, fallback, line
+):
+    """Malformed output cannot crash the reader or change the next line's level."""
+    stream = asyncio.StreamReader()
+    stream.feed_data(line + b"\nERROR next message\n")
+    stream.feed_eof()
+    manager = TunnelManager(lambda force: None, tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    await manager._log_stream(stream, fallback)
+
+    assert [r.levelno for r in caplog.records] == [fallback, logging.ERROR]
+    assert caplog.records[0].getMessage() == (
+        "tunnel-client: " + line.decode(errors="replace")
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", [logging.INFO, logging.WARNING])
+async def test_log_stream_ignores_duplicate_json_level(tmp_path, caplog, fallback):
+    stream = asyncio.StreamReader()
+    stream.feed_data(b'{"level":"ERROR","msg":"failure","level":"DEBUG"}\n')
+    stream.feed_eof()
+    manager = TunnelManager(lambda force: None, tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    await manager._log_stream(stream, fallback)
+
+    assert [record.levelno for record in caplog.records] == [logging.ERROR]
+
+
+@pytest.mark.asyncio
+async def test_log_tasks_handle_both_pipes_and_eof(tmp_path, caplog):
+    stdout, stderr = asyncio.StreamReader(), asyncio.StreamReader()
+    stdout.feed_data(b"\n \t\n\x1b[31mERROR\x1b[0m stdout error\r\nstdout fallback")
+    stderr.feed_data(b" \tinfo: stderr info\nlevel=debug msg=details\nstderr fallback")
+    stdout.feed_eof()
+    stderr.feed_eof()
+    manager = TunnelManager(lambda force: None, tmp_path)
+    manager._process = Mock(stdout=stdout, stderr=stderr)
+    caplog.set_level(logging.DEBUG)
+
+    manager._start_log_tasks()
+    await asyncio.gather(*manager._log_tasks)
+    await manager._stop_log_tasks()
+
+    assert sorted((r.levelno, r.getMessage()) for r in caplog.records) == sorted(
+        [
+            (logging.ERROR, "tunnel-client: ERROR stdout error"),
+            (logging.INFO, "tunnel-client: stdout fallback"),
+            (logging.INFO, "tunnel-client:  \tinfo: stderr info"),
+            (logging.DEBUG, "tunnel-client: level=debug msg=details"),
+            (logging.WARNING, "tunnel-client: stderr fallback"),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("style", ["plain", "json", "json-unicode"])
+async def test_log_stream_masks_configured_secrets(
+    tmp_path, monkeypatch, caplog, style
+):
+    entry = {
+        CONF_TUNNEL_ID: "tunnel_0123456789abcdef0123456789abcdef",
+        CONF_API_KEY: 'fixture-key-with-"quote-é',
+        CONF_HA_MCP_BEARER_TOKEN: "fixture-token",
+        CONF_HA_MCP_URL: "http://127.0.0.1:8123/private-fixture-path",
+    }
+    secrets = [
+        entry[key] for key in (CONF_API_KEY, CONF_HA_MCP_BEARER_TOKEN, CONF_HA_MCP_URL)
+    ]
+    payload = "Authorization: Bearer " + " ".join(secrets)
+    line = (
+        "ERROR " + payload
+        if style == "plain"
+        else json.dumps(
+            {"level": "ERROR", "msg": payload}, ensure_ascii=style == "json"
+        )
+    )
+    stdout, stderr = asyncio.StreamReader(), asyncio.StreamReader()
+    stdout.feed_eof()
+    # Include malformed/unrecognized output: fallback must redact as well.
+    stderr.feed_data((line + "\nunknown " + payload + "\n").encode())
+    stderr.feed_eof()
+    process = Mock(stdout=stdout, stderr=stderr, returncode=0)
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", AsyncMock(return_value=process)
+    )
+    manager = TunnelManager(lambda force: tmp_path / "tunnel-client", tmp_path / "run")
+    monkeypatch.setattr(manager, "_watch_process", AsyncMock())
+    caplog.set_level(logging.DEBUG)
+    try:
+        await manager.start(entry)
+        await asyncio.gather(*manager._log_tasks)
+        assert [r.levelno for r in caplog.records] == [logging.ERROR, logging.WARNING]
+        for record in caplog.records:
+            assert record.getMessage().count("**REDACTED**") == 3
+            for secret in secrets:
+                assert secret not in record.getMessage()
+                assert json.dumps(secret)[1:-1] not in record.args[0]
+    finally:
+        await manager.stop()
 
 
 def test_build_mcp_server_url() -> None:
