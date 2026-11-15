@@ -50,6 +50,22 @@ subprocess. The bundled pinned fallback and first install target is `v0.0.19`.
    <https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins>
    and use the same OpenAI tunnel ID.
 
+With a Home Assistant token configured, the integration sets
+`MCP_OAUTH_DISCOVERY=disabled` for the tunnel subprocess. In tunnel-client
+v0.0.21 and newer this skips OAuth challenge and metadata requests, including
+the empty authenticated POST that HA-MCP rejects and the resulting Harpoon
+warnings about HTTP OAuth targets. Normal MCP initialization, token forwarding,
+and authentication errors still work. Clearing the token restores `auto`
+discovery on the next integration reload or tunnel restart, including when the
+parent environment has a different discovery setting.
+
+Older binaries ignore this environment variable, preserving rollback
+compatibility but retaining their OAuth probes. The bundled fallback remains
+v0.0.19 and automatic updates retain the eight-day hold. An explicit manual
+release override can install v0.0.21 earlier; it was published on November 14,
+2026 at 18:25:22 UTC and becomes eligible on November 22 at 18:25:22 UTC.
+See the [upstream release notes](https://github.com/openai/tunnel-client/releases/tag/v0.0.21).
+
 ## tunnel-client Updates
 
 Automatic `tunnel-client` updates are enabled by default and can be disabled in
@@ -220,7 +236,7 @@ unload callbacks, transient
 failures, and the existing eight-day eligibility, checksum rejection, and
 readiness rollback behavior.
 
-Optional release tests launch the checksum-verified v0.0.18, v0.0.19 and v0.0.20 binaries
+Optional release tests launch the checksum-verified v0.0.18 through v0.0.21 binaries
 against loopback MCP/control-plane fixtures through the real integration process
 manager and updater. They use fake credentials and never connect to a live HA
 installation. See the [reproduction commands](docs/tunnel-client-v0.0.20.md#reproduce).

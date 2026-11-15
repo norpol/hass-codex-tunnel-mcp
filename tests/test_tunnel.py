@@ -209,6 +209,42 @@ async def test_log_stream_masks_configured_secrets(
         await manager.stop()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("inherited_mode", ["auto", "disabled"])
+async def test_restart_recomputes_oauth_mode(tmp_path, monkeypatch, inherited_mode):
+    """Changing credentials must not retain an old or inherited discovery mode."""
+    monkeypatch.setenv("MCP_OAUTH_DISCOVERY", inherited_mode)
+    process = Mock(stdout=None, stderr=None, returncode=0)
+    spawn = AsyncMock(return_value=process)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    manager = TunnelManager(lambda force: tmp_path / "tunnel-client", tmp_path / "run")
+    monkeypatch.setattr(manager, "_watch_process", AsyncMock())
+    entry = {
+        CONF_TUNNEL_ID: "tunnel_0123456789abcdef0123456789abcdef",
+        CONF_API_KEY: "fixture-key",
+        CONF_HA_MCP_URL: "http://127.0.0.1:8123/api/mcp",
+    }
+    try:
+        for token, mode in [
+            (" token ", "disabled"),
+            (" \t", "auto"),
+            (None, "auto"),
+            ("other-token", "disabled"),
+        ]:
+            entry[CONF_HA_MCP_BEARER_TOKEN] = token
+            await manager.restart(entry)
+            args, kwargs = spawn.call_args
+            assert kwargs["env"]["MCP_OAUTH_DISCOVERY"] == mode
+            assert not any(arg.startswith("--mcp.oauth-discovery") for arg in args)
+            if mode == "disabled":
+                assert kwargs["env"]["HA_MCP_AUTH_HEADER"] == f"Bearer {token.strip()}"
+                assert "Authorization: env:HA_MCP_AUTH_HEADER" in args
+            else:
+                assert "Authorization: env:HA_MCP_AUTH_HEADER" not in args
+    finally:
+        await manager.stop()
+
+
 def test_build_mcp_server_url() -> None:
     assert (
         build_mcp_server_url("http://127.0.0.1:9584/private_secret")

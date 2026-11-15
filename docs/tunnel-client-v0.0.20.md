@@ -133,7 +133,7 @@ On Linux amd64 or arm64 with Python >=3.14.2:
 python -m pip install -r requirements-test.txt
 arch=amd64 # use arm64 on aarch64
 archive_dir="$(mktemp -d)"
-for version in v0.0.18 v0.0.19 v0.0.20; do
+for version in v0.0.18 v0.0.19 v0.0.20 v0.0.21; do
   asset="tunnel-client-${version}-linux-${arch}.zip"
   curl --fail --location --retry 3 --max-time 120 \
     "https://github.com/openai/tunnel-client/releases/download/${version}/${asset}" \
