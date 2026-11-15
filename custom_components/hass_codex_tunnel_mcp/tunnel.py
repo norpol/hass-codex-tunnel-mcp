@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 import signal
 import time
 from collections.abc import Callable, Mapping
@@ -26,6 +28,45 @@ from .const import (
 from .metrics import derive_tunnel_endpoint_urls
 
 _LOGGER = logging.getLogger(__name__)
+
+_LOG_LEVELS = {
+    "TRACE": logging.DEBUG,
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARN": logging.WARNING,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "FATAL": logging.CRITICAL,
+    "CRITICAL": logging.CRITICAL,
+}
+_ANSI_COLOR = re.compile(r"\x1b\[[0-9;]*m")
+_LOG_LEVEL_PREFIX = re.compile(
+    r"^(?:(?:\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+)?"
+    r"(?P<plain>[a-z]+)(?=:\s|\s|$)"
+    r"|(?:time=\S+\s+)?level=(?P<structured>[a-z]+)(?=\s|$))",
+    re.IGNORECASE,
+)
+
+
+def _tunnel_log_level(message: str, fallback: int) -> int:
+    """Read Go default/slog headers without treating message text as severity."""
+    text = message.lstrip()
+    if text.startswith("{"):
+        try:
+            # slog writes its own level first; later attributes cannot override it.
+            record = json.loads(
+                text, object_pairs_hook=lambda pairs: dict(reversed(pairs))
+            )
+        except (ValueError, RecursionError):
+            # Do not log parsing errors: they can include sensitive payloads.
+            return fallback
+        level = record.get("level") if isinstance(record, dict) else None
+    else:
+        match = _LOG_LEVEL_PREFIX.match(text)
+        level = (match["plain"] or match["structured"]) if match else None
+    return (
+        _LOG_LEVELS.get(level.upper(), fallback) if isinstance(level, str) else fallback
+    )
 
 
 @dataclass(frozen=True)
@@ -106,6 +147,7 @@ class TunnelManager:
         self._stop_task: asyncio.Task[None] | None = None
         self._watch_task: asyncio.Task[None] | None = None
         self._log_tasks: list[asyncio.Task[None]] = []
+        self._log_secrets: tuple[str, ...] = ()
         self.status = TunnelStatus()
 
     @property
@@ -157,6 +199,20 @@ class TunnelManager:
         ha_mcp_token = str(entry_data.get(CONF_HA_MCP_BEARER_TOKEN) or "").strip()
         if ha_mcp_token:
             env["HA_MCP_AUTH_HEADER"] = f"Bearer {ha_mcp_token}"
+        # Mask configured credentials/secret MCP URLs, including JSON-escaped
+        # values, before passing subprocess output to any logging handler.
+        secrets: set[str] = set()
+        for key in (CONF_API_KEY, CONF_HA_MCP_BEARER_TOKEN, CONF_HA_MCP_URL):
+            value = str(entry_data.get(key) or "").strip()
+            if value:
+                secrets.update(
+                    (
+                        value,
+                        json.dumps(value, ensure_ascii=False)[1:-1],
+                        json.dumps(value)[1:-1],
+                    )
+                )
+        self._log_secrets = tuple(sorted(secrets, key=len, reverse=True))
         self.status = TunnelStatus(state="starting", version=version)
         self._notify()
         try:
@@ -219,6 +275,7 @@ class TunnelManager:
                 process.kill()
                 await process.wait()
         await self._stop_log_tasks()
+        self._log_secrets = ()
         self._process = None
         self.status = TunnelStatus(state="stopped")
         self._notify()
@@ -298,7 +355,13 @@ class TunnelManager:
         self, stream: asyncio.StreamReader, level: int
     ) -> None:
         while line := await stream.readline():
-            _LOGGER.log(level, "tunnel-client: %s", line.decode(errors="replace").rstrip())
+            message = _ANSI_COLOR.sub("", line.decode(errors="replace")).rstrip()
+            if not message.strip():
+                continue
+            message_level = _tunnel_log_level(message, level)
+            for secret in self._log_secrets:
+                message = message.replace(secret, "**REDACTED**")
+            _LOGGER.log(message_level, "tunnel-client: %s", message)
 
     async def _watch_health_file(self, health_file: Path) -> None:
         async with ClientSession(timeout=ClientTimeout(total=5)) as session:

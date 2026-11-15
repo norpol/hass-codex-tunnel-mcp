@@ -644,12 +644,17 @@ async def test_release_oauth_timeout_with_404_recovers(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("log_format", [None, "struct-text", "json"])
 async def test_release_expected_auth_probe_is_info(
-    release_binaries, local_tunnel, tmp_path, monkeypatch, caplog
+    release_binaries, local_tunnel, tmp_path, monkeypatch, caplog, log_format
 ):
     import logging
 
     monkeypatch.setenv("LOG_LEVEL", "info")
+    if log_format is None:
+        monkeypatch.delenv("LOG_FORMAT")
+    else:
+        monkeypatch.setenv("LOG_FORMAT", log_format)
     caplog.set_level(logging.INFO)
     manager = TunnelManager(
         lambda force: release_binaries["v0.0.20"][1], tmp_path / "run"
@@ -667,14 +672,11 @@ async def test_release_expected_auth_probe_is_info(
             "MCP startup probe completed with failure; starting control-plane poller for compatibility"
             not in caplog.text
         )
-        # The HA log reader maps stderr to WARNING; the embedded upstream
-        # record is INFO. Do not mistake HA's wrapper severity for a new error.
-        lines = [
-            r.message
-            for r in caplog.records
-            if "startup probe reached server" in r.message
+        records = [
+            r for r in caplog.records if "startup probe reached server" in r.message
         ]
-        assert any("level=INFO" in line for line in lines)
+        assert records
+        assert all(r.levelno == logging.INFO for r in records)
     finally:
         await manager.stop()
 
