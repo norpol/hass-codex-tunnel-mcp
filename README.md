@@ -273,6 +273,57 @@ and uses the same health-gated activation and rollback path as automatic
 updates. `rollback_tunnel_client` switches back to the previous known-good
 version when one is available.
 
+## Specifications and change workflow
+
+The [OpenSpec baseline](openspec/specs/) describes current
+[MCP startup behavior](openspec/specs/mcp-startup/spec.md) and the
+[Marketplace installation guide](openspec/specs/marketplace-installation/spec.md).
+These specifications document the behavior merged in PR #14. Other capabilities
+are not yet comprehensively specified. Completed change records live in
+[the archive](openspec/changes/archive/).
+
+Use **OpenSpec 2.0.0** for development. Install the appropriate standalone archive
+from the [pinned release](https://github.com/Fission-AI/OpenSpec/releases/tag/v2.0.0)
+and verify its SHA-256 before executing it. The
+[validation workflow](.github/workflows/openspec.yml) contains the pinned Linux
+x64 download and checksum. On NixOS, use the official tagged package:
+
+```bash
+export OPENSPEC_TELEMETRY=0
+nix shell github:Fission-AI/OpenSpec/v2.0.0
+```
+
+From the repository root, with OpenSpec on PATH:
+
+```bash
+export OPENSPEC_TELEMETRY=0
+openspec --version
+openspec list --specs
+openspec validate --all --strict --no-interactive
+openspec validate --archived --no-interactive
+```
+
+The version command should report `2.0.0`. OpenSpec is a developer tool and is not
+installed into Home Assistant by this integration.
+
+Codex workflows are checked in under `.agents/skills/` with the
+[upstream MIT license](.agents/skills/OPENSPEC-LICENSE). Restart or reload Codex
+after checkout if they are not visible. In Codex chat, use `$openspec-propose`
+to draft a change, `$openspec-apply-change` to implement it, and
+`$openspec-archive-change` to sync verified specs and archive completed work.
+In the Codex desktop app, select the corresponding skill from the Skills sidebar.
+Use `$openspec-explore` when the change needs investigation first.
+
+Keep observable requirements in the specs and implementation/test mapping in the
+change's design. Validate before archiving and again afterward. Use synthetic
+examples and review artifacts for secrets and personal information before commit.
+The OpenSpec CI job checks all active changes and specs, plus completed archive
+tasks; it complements the integration regression jobs.
+
+To refresh generated skills with the pinned CLI, run `openspec update` with
+telemetry disabled. When upgrading OpenSpec, review the new generated workflows
+and update the CLI version, CI archive checksum, and instructions together.
+
 ## Development checks
 
 Use Python 3.14.2 or newer for the Home Assistant 2026.10.1 regression tests:

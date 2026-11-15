@@ -1,0 +1,22 @@
+schema: spec-driven
+context: |
+  This is a public Home Assistant custom integration. Preserve compatibility
+  with its supported Linux amd64 and arm64 hosts when planning runtime changes.
+  The initial baseline documents implemented MCP startup and Marketplace behavior;
+  other integration capabilities are not yet comprehensively specified.
+  Distinguish behavior owned by this integration from Home Assistant or OpenSpec.
+  Use synthetic credentials and generic examples. Never include live tokens,
+  tunnel IDs, private endpoints, household data, raw logs, or developer home paths.
+rules:
+  proposal:
+    - State whether the change introduces behavior or documents existing behavior.
+    - Keep the capability inventory scoped to the requested work.
+  specs:
+    - Specify observable behavior with testable scenarios; keep implementation details in design.
+    - Do not claim unverified behavior or expand compatibility beyond the implementation.
+  design:
+    - Map scenarios to existing or planned tests and identify manual or external-documentation checks.
+    - Explain effects on credentials, update eligibility, and rollback when relevant.
+  tasks:
+    - Include strict OpenSpec validation, relevant checks, and a review for secrets and personal information.
+    - Mark tasks complete only after their work and verification are finished.
