@@ -5,14 +5,16 @@
 Define how the tunnel integration handles MCP endpoint availability during setup,
 including automatic recovery and diagnostic messages that protect credentials.
 
+A **retryable probe failure** means a handled HTTP 404/server error, timeout, or
+connection failure. Unexpected setup exceptions are outside this definition.
+
 ## Requirements
 
 ### Requirement: Retry unavailable MCP endpoints
 
-The integration SHALL defer setup and use Home Assistant's automatic retry when
-the MCP probe receives HTTP 404 or a server error, times out, or cannot connect.
-It SHALL wait until Home Assistant has started before retrying a failure detected
-during startup, and use Home Assistant's retry backoff when already running.
+The integration SHALL defer setup and use Home Assistant's automatic retry for
+retryable probe failures: after startup finishes for failures during startup,
+or with Home Assistant's retry backoff when already running.
 
 #### Scenario: MCP route appears after Home Assistant starts
 
@@ -23,29 +25,29 @@ during startup, and use Home Assistant's retry backoff when already running.
 
 #### Scenario: Endpoint remains unavailable
 
-- **WHEN** a probe receives HTTP 404 or 503, times out, or fails to connect after startup
+- **WHEN** a retryable probe failure occurs after startup
 - **THEN** setup remains pending with a retry reason and another retry is scheduled
 - **AND** HTTP 404 is never treated as successful reachability
 
 ### Requirement: Keep failed setup attempts isolated
 
-An MCP probe failure SHALL leave no active tunnel, diagnostic entities, or
+A retryable probe failure SHALL leave no active tunnel, diagnostic entities, or
 automatic update schedule for the failed attempt. The integration SHALL discard
 that attempt's incomplete runtime state without removing another entry's runtime.
 
 #### Scenario: One entry cannot reach its MCP endpoint
 
 - **GIVEN** another tunnel entry already has runtime state
-- **WHEN** this entry's MCP probe fails
+- **WHEN** this entry encounters a retryable probe failure
 - **THEN** this attempt starts no subprocess, entities, or update schedule
 - **AND** its incomplete runtime state is removed while the other entry is retained
 
-### Requirement: Defer transient startup repairs
+### Requirement: Report probe failures according to startup state
 
-An expected MCP reachability failure during Home Assistant startup SHALL use the
-normal setup retry status without creating new startup-failed or unreachable-URL
-repairs. The integration SHALL NOT emit its own error-level traceback for an
-expected probe failure.
+For a retryable probe failure, the integration SHALL create an unreachable-URL
+repair only while Home Assistant is fully running. During startup it SHALL leave
+setup pending without creating startup-failed or unreachable-URL repairs. It
+SHALL NOT emit its own error-level traceback for these failures.
 
 #### Scenario: Temporary startup 404
 
@@ -53,16 +55,10 @@ expected probe failure.
 - **THEN** the integration creates neither failure repair for that attempt
 - **AND** Home Assistant reports the pending retry without a duplicate integration error
 
-### Requirement: Report failures that persist after startup
-
-When an MCP probe fails while Home Assistant is fully running, the integration
-SHALL expose an unreachable-URL repair with a redacted endpoint and a sanitized
-reason, while continuing automatic retries.
-
 #### Scenario: Persistent failure is actionable
 
-- **WHEN** a probe fails after Home Assistant has finished starting
-- **THEN** the repair identifies an HTTP status, timeout, or connection failure
+- **WHEN** a retryable probe failure occurs after Home Assistant has finished starting
+- **THEN** an unreachable-URL repair identifies an HTTP status, timeout, or connection failure
 - **AND** it tells the operator that retries continue and to check the MCP server and URL
 
 ### Requirement: Separate reachability from authentication
@@ -91,22 +87,20 @@ working authentication or a successful MCP request.
 
 ### Requirement: Sanitize expected probe diagnostics
 
-For handled HTTP 404/server errors, timeouts, and connection failures, probe
-error messages and their displayed exception chains SHALL omit credentials,
-secret URL paths and query values, and raw underlying exception details. The
-unreachable-URL repair for those failures SHALL redact the endpoint path and
-query. This redaction contract does not cover unexpected setup exceptions.
+Retry messages and displayed exception chains for retryable probe failures SHALL
+omit credentials, secret URL paths and query values, and raw underlying exception
+details. The unreachable-URL repair SHALL redact the endpoint path and query.
 
 #### Scenario: Handled probe failure contains private details
 
-- **WHEN** a handled HTTP 404/server error, timeout, or connection failure contains a secret URL or arbitrary private detail
+- **WHEN** a retryable probe failure contains a secret URL or arbitrary private detail
 - **THEN** the retry message and exception chain expose only the sanitized failure reason
 - **AND** the repair omits secret path and query content
 
 ### Requirement: Clear failure repairs on recovery
 
-Successful setup after a failed probe SHALL clear prior startup-failed and
-unreachable-URL repairs and establish the tunnel's diagnostic entities.
+Successful setup after a retryable probe failure SHALL clear prior startup-failed
+and unreachable-URL repairs and establish the tunnel's diagnostic entities.
 
 #### Scenario: A persistent failure recovers
 

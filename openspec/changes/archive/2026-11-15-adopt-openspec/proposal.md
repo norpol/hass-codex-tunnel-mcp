@@ -9,9 +9,10 @@ small OpenSpec baseline makes those contracts explicit for future changes.
 ## What Changes
 
 - Add OpenSpec 2.0.0 configuration and its generated Codex core workflows.
-- Document the existing MCP startup and Marketplace installation behavior with
-  requirements and scenarios; this adoption does not introduce runtime behavior.
-- Add a pinned, checksum-verified OpenSpec validation job and developer guidance.
+- Specify existing MCP startup and integration-specific installation/maintenance
+  guarantees; keep Marketplace/HACS procedures in README. No runtime behavior changes.
+- Add a pinned, checksum-verified OpenSpec validation job and development guidance,
+  including the standard lighter workflow for maintenance with unchanged contracts.
 - Validate and archive this adoption change, retaining the baseline specs.
 
 ## Capabilities
@@ -23,8 +24,8 @@ documented, not new integration features.
 
 - `mcp-startup`: MCP endpoint reachability, startup retries, repair timing,
   recovery, and safe diagnostics.
-- `marketplace-installation`: The installation and maintenance guide for
-  Marketplace, migration from HACS, legacy installation, and supported hosts.
+- `marketplace-installation`: Supported hosts, separate integration/executable
+  updates, and maintenance connection guidance.
 
 ### Modified Capabilities
 

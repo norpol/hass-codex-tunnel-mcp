@@ -277,7 +277,9 @@ version when one is available.
 
 The [OpenSpec baseline](openspec/specs/) describes current
 [MCP startup behavior](openspec/specs/mcp-startup/spec.md) and the
-[Marketplace installation guide](openspec/specs/marketplace-installation/spec.md).
+[installation and maintenance guarantees](openspec/specs/marketplace-installation/spec.md).
+Marketplace/HACS procedures and migration guidance live in the installation
+sections above.
 These specifications document the behavior merged in PR #14. Other capabilities
 are not yet comprehensively specified. Completed change records live in
 [the archive](openspec/changes/archive/).
@@ -314,9 +316,23 @@ to draft a change, `$openspec-apply-change` to implement it, and
 In the Codex desktop app, select the corresponding skill from the Skills sidebar.
 Use `$openspec-explore` when the change needs investigation first.
 
-Keep observable requirements in the specs and implementation/test mapping in the
-change's design. Validate before archiving and again afterward. Use synthetic
-examples and review artifacts for secrets and personal information before commit.
+Choose the smallest change record that fits:
+
+- Use the full proposal, spec delta, and task workflow when a behavior contract
+  changes. Correcting or simplifying a contract also belongs here, even when
+  runtime code stays the same.
+- For pure documentation, tooling, or refactoring with unchanged contracts, set
+  `skip_specs: true` alongside `schema: spec-driven` in the change's
+  `.openspec.yaml`. Keep a concise proposal and verified tasks; do not invent
+  spec deltas. This is change metadata, not a project-wide setting.
+- Include `design.md` only for architectural changes, new dependencies, security,
+  performance or migration complexity, or decisions needed before coding.
+  Otherwise omit it and put verification with each task.
+
+Keep observable requirements in specs and implementation/test mapping in the
+change's design or tasks. Validate before archiving and again afterward. Use
+synthetic examples and review artifacts for secrets and personal information
+before commit.
 The OpenSpec CI job checks all active changes and specs, plus completed archive
 tasks; it complements the integration regression jobs.
 
