@@ -150,6 +150,89 @@ async def test_manual_override_never_bypasses_checksum(setup):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("automatic", [False, True])
+async def test_missing_digest_prevents_candidate_installation(
+    setup, monkeypatch, automatic
+):
+    updater, install, tunnel, *_ = setup
+    candidate = release()
+    candidate["assets"][0]["digest"] = None
+    monkeypatch.setattr(
+        module,
+        "fetch_github_releases",
+        AsyncMock(return_value=parse_github_releases([candidate])),
+    )
+
+    with pytest.raises(ChecksumError, match="no SHA256 digest"):
+        await updater.async_update_tunnel_client(
+            tunnel,
+            {},
+            now=PUBLISHED + timedelta(days=8) if automatic else PUBLISHED,
+            automatic=automatic,
+            selected_version=None if automatic else "v0.0.20",
+        )
+
+    install.assert_not_awaited()
+    tunnel.start.assert_not_awaited()
+    assert updater.state.active_version == "v0.0.19"
+    assert updater.state.last_update is None
+    module.create_issue.assert_awaited_once()
+    assert module.create_issue.await_args.args[1] == "tunnel_client_unverified_release"
+
+
+@pytest.mark.asyncio
+async def test_candidate_is_active_only_after_readiness(setup):
+    updater, _, tunnel, *_ = setup
+
+    async def ready_after_start(_timeout):
+        tunnel.start.assert_awaited_once()
+        assert updater.state.active_version == "v0.0.19"
+        assert updater.state.last_update is None
+        return True
+
+    tunnel.wait_until_healthy.side_effect = ready_after_start
+    await updater.async_update_tunnel_client(
+        tunnel, {}, now=PUBLISHED, selected_version="v0.0.20"
+    )
+
+    tunnel.wait_until_healthy.assert_awaited_once()
+    assert updater.state.active_version == "v0.0.20"
+    assert updater.state.previous_version == "v0.0.19"
+    assert updater.state.last_update == PUBLISHED.isoformat()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recovery_failure", ["start", "readiness"])
+async def test_failed_update_reports_failed_recovery(setup, recovery_failure):
+    updater, install, tunnel, *_ = setup
+    if recovery_failure == "start":
+        tunnel.start.side_effect = [None, TunnelClientError("rollback start failed")]
+        tunnel.wait_until_healthy.side_effect = [False]
+        recovery_error = "rollback start failed"
+    else:
+        tunnel.wait_until_healthy.side_effect = [False, False]
+        recovery_error = "rollback tunnel-client v0.0.19 did not become ready"
+
+    with pytest.raises(TunnelClientError, match="v0.0.20 did not become ready"):
+        await updater.async_update_tunnel_client(
+            tunnel, {}, now=PUBLISHED, selected_version="v0.0.20"
+        )
+
+    install.assert_awaited_once()
+    assert tunnel.start.await_count == 2
+    tunnel.start.assert_awaited_with({})
+    assert updater.state.active_version == "v0.0.19"
+    assert updater.state.last_update is None
+    assert "v0.0.20" in updater.state.failed_versions
+    assert updater.state.last_error == "tunnel-client v0.0.20 did not become ready"
+    assert [call.args[1] for call in module.create_issue.await_args_list] == [
+        "tunnel_client_update_failed",
+        "tunnel_client_rollback_failed",
+    ]
+    assert module.create_issue.await_args.args[3] == {"error": recovery_error}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "bad_release",
     [

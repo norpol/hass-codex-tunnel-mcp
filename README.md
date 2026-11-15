@@ -273,6 +273,97 @@ and uses the same health-gated activation and rollback path as automatic
 updates. `rollback_tunnel_client` switches back to the previous known-good
 version when one is available.
 
+## Specifications and change workflow
+
+The [OpenSpec baseline](openspec/specs/) describes current
+[MCP startup behavior](openspec/specs/mcp-startup/spec.md),
+[tunnel-client updates](openspec/specs/tunnel-client-updates/spec.md), and the
+[installation and maintenance guarantees](openspec/specs/marketplace-installation/spec.md).
+Marketplace/HACS procedures and migration guidance live in the installation
+sections above.
+These specifications document the behavior merged in PR #14. Other capabilities
+are not yet comprehensively specified. Completed change records live in
+[the archive](openspec/changes/archive/).
+
+Use **OpenSpec 2.0.0** for development. Install the appropriate standalone archive
+from the [pinned release](https://github.com/Fission-AI/OpenSpec/releases/tag/v2.0.0)
+and verify its SHA-256 before executing it. The
+[validation workflow](.github/workflows/openspec.yml) contains the pinned Linux
+x64 download and checksum. On NixOS, use the official tagged package:
+
+```bash
+export OPENSPEC_TELEMETRY=0
+nix shell github:Fission-AI/OpenSpec/v2.0.0
+```
+
+From the repository root, with OpenSpec on PATH:
+
+```bash
+export OPENSPEC_TELEMETRY=0
+openspec --version
+openspec list --specs
+openspec validate --all --strict --no-interactive
+openspec validate --archived --no-interactive
+```
+
+The version command should report `2.0.0`. OpenSpec is a developer tool and is not
+installed into Home Assistant by this integration.
+
+Codex workflows are checked in under `.agents/skills/` with the
+[upstream MIT license](.agents/skills/OPENSPEC-LICENSE). Restart or reload Codex
+after checkout if they are not visible. In Codex chat, use `$openspec-propose`
+to draft a change, `$openspec-apply-change` to implement it, and
+`$openspec-verify-change` to review behavior changes before
+`$openspec-archive-change` syncs specs and archives completed work.
+In the Codex desktop app, select the corresponding skill from the Skills sidebar.
+Use `$openspec-explore` when the change needs investigation first.
+
+Choose the smallest change record that fits:
+
+- Use the full proposal, spec delta, and task workflow when a behavior contract
+  changes. Correcting or simplifying a contract also belongs here, even when
+  runtime code stays the same.
+- For pure documentation, tooling, or refactoring with unchanged contracts, set
+  `skip_specs: true` alongside `schema: spec-driven` in the change's
+  `.openspec.yaml`. Keep a concise proposal and verified tasks; do not invent
+  spec deltas. This is change metadata, not a project-wide setting.
+- Include `design.md` only for architectural changes, new dependencies, security,
+  performance or migration complexity, or decisions needed before coding.
+  Otherwise omit it and put verification with each task.
+
+Keep observable requirements in specs and map affected scenarios to named tests
+or explicit manual checks in tasks, including any evidence gaps. Include relevant
+failure and recovery cases, and challenge broad security guarantees with
+counterexamples. Surface disagreements between requirements and implementation;
+make any contract revision explicit.
+
+Verification has three complementary parts:
+
+- `openspec validate` checks structure. CI checks active changes, baseline specs,
+  and completed archive tasks.
+- Relevant tests exercise behavior; record commands, results, and limitations
+  with the tasks. Existing integration regression jobs remain the runtime checks.
+- `$openspec-verify-change` reviews completeness, correctness, and coherence
+  against the change artifacts. Its report is advisory, does not replace tests,
+  and respects intentionally skipped specs and optional design documents.
+
+Validate before archiving and again afterward. Use synthetic examples and review
+artifacts for secrets and personal information before commit.
+
+This repository uses the six core workflows plus optional verification. To
+regenerate them with the pinned CLI and telemetry disabled:
+
+```bash
+openspec config set profile custom
+openspec config set workflows '["propose","explore","apply","update","sync","archive","verify"]'
+OPENSPEC_NO_UPDATE_CHECK=1 openspec update --force
+```
+
+The profile selection is machine-global; these commands replace that selection.
+Keep project guidance in `openspec/config.yaml`; regenerate workflow files rather
+than editing them by hand. When upgrading OpenSpec, review the generated changes
+and update the CLI version, CI archive checksum, and instructions together.
+
 ## Development checks
 
 Use Python 3.14.2 or newer for the Home Assistant 2026.10.1 regression tests:

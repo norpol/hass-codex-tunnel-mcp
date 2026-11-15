@@ -1,0 +1,39 @@
+name: OpenSpec validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OPENSPEC_TELEMETRY: '0'
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install verified OpenSpec 2.0.0
+        shell: bash
+        run: |
+          openspec_dir="$RUNNER_TEMP/openspec"
+          mkdir -p "$openspec_dir"
+          curl --fail --silent --show-error --location --retry 3 --max-time 120 \
+            https://github.com/Fission-AI/OpenSpec/releases/download/v2.0.0/openspec-linux-x64.tar.gz \
+            --output "$openspec_dir/openspec-linux-x64.tar.gz"
+          echo "de16fddbce121ee176e74c963a31dc723e851629a3b89a78bd16e360d34dcf4c  $openspec_dir/openspec-linux-x64.tar.gz" \
+            | sha256sum --check --strict
+          tar -xzf "$openspec_dir/openspec-linux-x64.tar.gz" -C "$openspec_dir" openspec
+          chmod +x "$openspec_dir/openspec"
+          echo "$openspec_dir" >> "$GITHUB_PATH"
+      - name: Validate specifications and active changes
+        run: openspec validate --all --strict --no-interactive
+      - name: Validate completed archive tasks
+        run: openspec validate --archived --no-interactive

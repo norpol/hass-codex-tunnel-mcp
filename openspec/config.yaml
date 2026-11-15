@@ -1,0 +1,31 @@
+schema: spec-driven
+context: |
+  This is a public Home Assistant custom integration. Preserve compatibility
+  with its supported Linux amd64 and arm64 hosts when planning runtime changes.
+  The baseline covers MCP startup, tunnel-client updates, and integration-specific
+  installation and maintenance guarantees. README owns Marketplace/HACS procedures;
+  other integration capabilities are not yet comprehensively specified.
+  Distinguish behavior owned by this integration from Home Assistant or OpenSpec.
+  Use synthetic credentials and generic examples. Never include live tokens,
+  tunnel IDs, private endpoints, household data, raw logs, or developer home paths.
+rules:
+  proposal:
+    - State whether the change introduces behavior or documents existing behavior.
+    - Keep the capability inventory scoped to the requested work.
+  specs:
+    - Specify observable behavior with testable scenarios; keep implementation details in design.
+    - Do not claim unverified behavior or expand compatibility beyond the implementation.
+    - Include relevant failure and recovery scenarios; challenge broad security guarantees with counterexamples.
+  design:
+    - Explain effects on credentials, update eligibility, and rollback when relevant.
+  tasks:
+    - Map affected scenarios to named existing or planned tests or explicit manual checks; record any evidence gaps here even when design is omitted.
+    - Include strict OpenSpec validation, relevant checks, and a review for secrets and personal information.
+operations:
+  apply:
+    guidance:
+      - Run each task's relevant checks and record results or limitations before marking it complete.
+      - Surface disagreements between requirements and implementation; do not silently weaken a contract to fit the code.
+  archive:
+    guidance:
+      - Review implementation against the artifacts and summarize check results and unresolved gaps; distinguish structural validation, tests, and advisory verification.
