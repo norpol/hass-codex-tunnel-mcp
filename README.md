@@ -312,7 +312,8 @@ Codex workflows are checked in under `.agents/skills/` with the
 [upstream MIT license](.agents/skills/OPENSPEC-LICENSE). Restart or reload Codex
 after checkout if they are not visible. In Codex chat, use `$openspec-propose`
 to draft a change, `$openspec-apply-change` to implement it, and
-`$openspec-archive-change` to sync verified specs and archive completed work.
+`$openspec-verify-change` to review behavior changes before
+`$openspec-archive-change` syncs specs and archives completed work.
 In the Codex desktop app, select the corresponding skill from the Skills sidebar.
 Use `$openspec-explore` when the change needs investigation first.
 
@@ -329,15 +330,37 @@ Choose the smallest change record that fits:
   performance or migration complexity, or decisions needed before coding.
   Otherwise omit it and put verification with each task.
 
-Keep observable requirements in specs and implementation/test mapping in the
-change's design or tasks. Validate before archiving and again afterward. Use
-synthetic examples and review artifacts for secrets and personal information
-before commit.
-The OpenSpec CI job checks all active changes and specs, plus completed archive
-tasks; it complements the integration regression jobs.
+Keep observable requirements in specs and map affected scenarios to named tests
+or explicit manual checks in tasks, including any evidence gaps. Include relevant
+failure and recovery cases, and challenge broad security guarantees with
+counterexamples. Surface disagreements between requirements and implementation;
+make any contract revision explicit.
 
-To refresh generated skills with the pinned CLI, run `openspec update` with
-telemetry disabled. When upgrading OpenSpec, review the new generated workflows
+Verification has three complementary parts:
+
+- `openspec validate` checks structure. CI checks active changes, baseline specs,
+  and completed archive tasks.
+- Relevant tests exercise behavior; record commands, results, and limitations
+  with the tasks. Existing integration regression jobs remain the runtime checks.
+- `$openspec-verify-change` reviews completeness, correctness, and coherence
+  against the change artifacts. Its report is advisory, does not replace tests,
+  and respects intentionally skipped specs and optional design documents.
+
+Validate before archiving and again afterward. Use synthetic examples and review
+artifacts for secrets and personal information before commit.
+
+This repository uses the six core workflows plus optional verification. To
+regenerate them with the pinned CLI and telemetry disabled:
+
+```bash
+openspec config set profile custom
+openspec config set workflows '["propose","explore","apply","update","sync","archive","verify"]'
+OPENSPEC_NO_UPDATE_CHECK=1 openspec update --force
+```
+
+The profile selection is machine-global; these commands replace that selection.
+Keep project guidance in `openspec/config.yaml`; regenerate workflow files rather
+than editing them by hand. When upgrading OpenSpec, review the generated changes
 and update the CLI version, CI archive checksum, and instructions together.
 
 ## Development checks

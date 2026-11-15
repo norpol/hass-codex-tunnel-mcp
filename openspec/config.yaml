@@ -15,9 +15,17 @@ rules:
   specs:
     - Specify observable behavior with testable scenarios; keep implementation details in design.
     - Do not claim unverified behavior or expand compatibility beyond the implementation.
+    - Include relevant failure and recovery scenarios; challenge broad security guarantees with counterexamples.
   design:
-    - Map scenarios to existing or planned tests and identify manual or external-documentation checks.
     - Explain effects on credentials, update eligibility, and rollback when relevant.
   tasks:
+    - Map affected scenarios to named existing or planned tests or explicit manual checks; record any evidence gaps here even when design is omitted.
     - Include strict OpenSpec validation, relevant checks, and a review for secrets and personal information.
-    - Mark tasks complete only after their work and verification are finished.
+operations:
+  apply:
+    guidance:
+      - Run each task's relevant checks and record results or limitations before marking it complete.
+      - Surface disagreements between requirements and implementation; do not silently weaken a contract to fit the code.
+  archive:
+    guidance:
+      - Review implementation against the artifacts and summarize check results and unresolved gaps; distinguish structural validation, tests, and advisory verification.
