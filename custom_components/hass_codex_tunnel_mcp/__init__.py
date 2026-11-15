@@ -20,7 +20,7 @@ from .const import (
     RUN_DIR_NAME,
     STORAGE_DIR,
 )
-from .mcp_url import MCPUrlError, assess_mcp_url, async_probe_mcp_url
+from .mcp_url import MCPProbeError, MCPUrlError, assess_mcp_url, async_probe_mcp_url
 from .repairs import create_issue, delete_issue
 from .tunnel import TunnelManager
 from .updater import TunnelClientUpdater
@@ -30,6 +30,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool:
     """Set up OpenAI Tunnel for HA-MCP."""
+    from homeassistant.core import CoreState
     from homeassistant.exceptions import ConfigEntryNotReady
 
     hass.data.setdefault(DOMAIN, {})
@@ -58,21 +59,12 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
     }
 
     try:
-        try:
-            entry_data = {**entry.data, **entry.options}
-            assessment = assess_mcp_url(str(entry_data[CONF_HA_MCP_URL]))
-            await async_probe_mcp_url(
-                assessment.url,
-                bearer_token=str(entry_data.get(CONF_HA_MCP_BEARER_TOKEN) or ""),
-            )
-        except MCPUrlError as err:
-            await create_issue(
-                hass,
-                "mcp_url_unreachable",
-                "mcp_url_unreachable",
-                {"url": assessment.redacted_url if "assessment" in locals() else ""},
-            )
-            raise
+        entry_data = {**entry.data, **entry.options}
+        assessment = assess_mcp_url(str(entry_data[CONF_HA_MCP_URL]))
+        await async_probe_mcp_url(
+            assessment.url,
+            bearer_token=str(entry_data.get(CONF_HA_MCP_BEARER_TOKEN) or ""),
+        )
         if assessment.warning is not None:
             await create_issue(
                 hass,
@@ -93,6 +85,22 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
                 {"error": str(err)},
             )
             raise
+    except MCPUrlError as err:
+        # Local MCP routes may not exist until the server integration is loaded.
+        # HA retries after startup (or with backoff when already running).
+        # No subprocess, platforms, or updater timers have started at this point.
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        if not isinstance(err, MCPProbeError) or hass.state is CoreState.running:
+            await create_issue(
+                hass,
+                "mcp_url_unreachable",
+                "mcp_url_unreachable",
+                {
+                    "url": assessment.redacted_url if "assessment" in locals() else "",
+                    "reason": str(err),
+                },
+            )
+        raise ConfigEntryNotReady(str(err)) from err
     except UnsupportedPlatformError as err:
         await create_issue(
             hass,

@@ -1,22 +1,47 @@
 # OpenAI Tunnel for HA-MCP
 
-A HACS custom integration that exposes an existing Home Assistant MCP server through
-`openai/tunnel-client`.
+A custom integration that exposes an existing Home Assistant MCP server through
+`openai/tunnel-client`. Install it from Home Assistant's built-in **Marketplace**
+(formerly HACS), then configure and manage it in **Devices & services**.
+
+The tunnel client supports Linux `amd64`/`x86_64` and `arm64`/`aarch64`, including
+Home Assistant OS and Home Assistant Container. Other platforms produce a repair
+explaining that no supported binary is available.
 
 The integration downloads the host-specific `tunnel-client` release binary on
 first run, verifies the SHA256 digest, extracts each version under
 `.hass_codex_tunnel_mcp/bin/<version>/`, and supervises it as a Home Assistant
 subprocess. The bundled pinned fallback and first install target is `v0.0.19`.
 
-## Install with HACS
+## Install with Marketplace (Home Assistant 2026.11 and newer)
 
-1. In HACS, add this repository as a custom repository with category
-   `Integration`.
-2. Install **OpenAI Tunnel for HA-MCP**.
-3. Restart Home Assistant.
-4. Add the integration from **Settings > Devices & services**.
+Marketplace ships with Home Assistant; a separate HACS installation is no longer
+needed. This project is a custom repository, so add its GitHub link:
 
-## OpenAI Setup
+1. As an administrator, open **Settings > Marketplace** and accept the initial
+   community-content notice if prompted.
+2. Choose **Add from link** and enter
+   `https://github.com/norpol/hass-codex-tunnel-mcp`.
+3. Complete the GitHub connection when prompted, then choose **Add**. Custom
+   repositories need that connection for installation and updates. Select
+   **Integration** if Marketplace asks for the content type.
+4. Open **OpenAI Tunnel for HA-MCP** and choose **Install**. Review and confirm
+   the selected version. Follow any restart prompt.
+5. Continue into the integration setup, or open **Settings > Devices & services >
+   Add integration** and search for **OpenAI Tunnel for HA-MCP**.
+
+Home Assistant automatically migrates existing HACS installations, custom
+repositories, and update entities to Marketplace. An existing installation does
+not need to be added again. See the
+[official Marketplace guide](https://www.home-assistant.io/integrations/marketplace/).
+
+### Older Home Assistant installations
+
+Before Home Assistant 2026.11, use HACS: add this repository under **Custom
+repositories** with category **Integration**, install **OpenAI Tunnel for HA-MCP**,
+restart Home Assistant, then add it from **Settings > Devices & services**.
+
+## Configure the tunnel
 
 1. Enable Home Assistant's **MCP Server** integration.
 2. Use the local/direct MCP URL, normally
@@ -61,12 +86,25 @@ parent environment has a different discovery setting.
 
 Older binaries ignore this environment variable, preserving rollback
 compatibility but retaining their OAuth probes. The bundled fallback remains
-v0.0.19 and automatic updates retain the eight-day hold. An explicit manual
-release override can install v0.0.21 earlier; it was published on November 14,
-2026 at 18:25:22 UTC and becomes eligible on November 22 at 18:25:22 UTC.
+v0.0.19 and automatic updates retain the eight-day hold. To use the discovery fix
+before a release is eligible, install v0.0.21 or a newer stable release with the
+manual release controls below.
 See the [upstream release notes](https://github.com/openai/tunnel-client/releases/tag/v0.0.21).
 
-## tunnel-client Updates
+## Updates
+
+The integration and its managed executable have separate update mechanisms:
+
+| Component | Where to update | When it takes effect |
+| --- | --- | --- |
+| Home Assistant integration (this repository) | **Settings > Updates**, using the Marketplace update entity | Restart Home Assistant after installing the update. |
+| `tunnel-client` executable | Automatic checks or the controls on this integration's device page | The integration restarts the tunnel and checks readiness. |
+
+Marketplace continues to use this repository's `hacs.json` metadata. Its update
+entity does not control the executable's eight-day release hold. Legacy HACS
+installations also update the integration code separately.
+
+### Automatic tunnel-client updates
 
 Automatic `tunnel-client` updates are enabled by default and can be disabled in
 the integration options. After Home Assistant starts, the updater uses its saved
@@ -97,24 +135,21 @@ version, deferred-until time, last check, last successful update, last error,
 and failed update versions. It also reports `auto_update_enabled` and the UTC
 `next_update_check` deadline. The deadline is omitted while Home Assistant is
 still starting, while a check is running, or when automatic updates are disabled.
-These settings describe tunnel-client updates; HACS updates the integration's
-Python code separately.
 
-v0.0.19 was published on October 30, 2026 at 20:26:10 UTC and becomes eligible
-on November 7, 2026 at 20:26:10 UTC (21:26:10 Vienna time). Installation occurs
-at the next scheduled check, not necessarily at that instant. Changing the
+Installation occurs at the next scheduled check after eligibility. Changing the
 pinned fallback does not migrate an existing cached active version. New installs
 and recovery to the pinned fallback use the pin immediately; the eight-day hold
 applies to automatic updates and the default manual update action.
 
 ### Manual controls
 
-On the integration's device page:
+Open **Settings > Devices & services > OpenAI Tunnel for HA-MCP** and select its
+device:
 
 1. Press **Check releases** to refresh the available newer stable versions.
 2. Leave **Release override (ignores age hold)** at **Latest eligible (8-day hold)**
    for normal updates, or deliberately choose a specific version such as
-   `v0.0.20` to bypass the age hold for that installation.
+   `v0.0.21` to bypass the age hold for that installation.
 3. Press **Install selected release**.
 
 Choosing a version alone does not install it or change automatic updates. The
@@ -125,12 +160,34 @@ same checksum and startup-readiness checks. Failed startup returns to the
 previous version. The existing `update_tunnel_client` service keeps the age hold;
 `rollback_tunnel_client` remains available for returning to the previous binary.
 
-v0.0.20 becomes eligible for automatic updates on **November 14, 2026 at
-22:05:17 UTC (23:05:17 CET)**, at the next scheduled check. The fallback pin stays
-at v0.0.19. The [v0.0.20 assessment](docs/tunnel-client-v0.0.20.md) covers the
-actual release binaries, OAuth discovery/forwarding, and the manual controls.
+Use the Home Assistant UI or a direct local API connection for restart and update
+actions. Invoking them through the tunnel being restarted interrupts the request
+carrying the action.
 
-## Runtime Behavior
+## Startup and troubleshooting
+
+Home Assistant's warning that this custom integration has not been tested by
+Home Assistant is expected. Installing through Marketplace does not make it a
+built-in integration or remove that warning.
+
+The MCP endpoint may return HTTP 404 briefly while Home Assistant is starting,
+before the MCP server registers its route. The integration waits for Home
+Assistant's automatic setup retry, without starting the tunnel or creating a
+failure repair for that startup delay. A 404 is still a failed probe; it is never
+treated as a working endpoint.
+
+If the endpoint remains unavailable after startup, **Settings > Devices &
+services** shows the retry reason and **Settings > System > Repairs** shows the
+unreachable-URL issue. Confirm that the MCP server is enabled and the configured
+URL is its complete local endpoint. A timeout or connection failure also retries
+automatically. Successful setup clears the startup and unreachable-URL repairs.
+
+The reachability probe uses GET. An MCP server that only accepts POST can return
+405, which is accepted for reachability. Responses such as 401 or 403 also prove
+that the endpoint responds, but do not prove that credentials work. Validate the
+ready state, control-plane polling, and a real MCP request after setup.
+
+## Runtime behavior
 
 The integration validates the configured HA-MCP URL, then starts:
 
@@ -144,9 +201,6 @@ tunnel-client run \
   --health.listen-addr 127.0.0.1:0 \
   --health.url-file <integration-run-dir>/health.url
 ```
-
-Only Linux `amd64` and `aarch64` Home Assistant OS/Supervised hosts are
-supported initially. Other platforms create a Home Assistant repair issue.
 
 ## Entities
 
@@ -219,7 +273,7 @@ and uses the same health-gated activation and rollback path as automatic
 updates. `rollback_tunnel_client` switches back to the previous known-good
 version when one is available.
 
-## Development Checks
+## Development checks
 
 Use Python 3.14.2 or newer for the Home Assistant 2026.10.1 regression tests:
 
@@ -236,8 +290,15 @@ unload callbacks, transient
 failures, and the existing eight-day eligibility, checksum rejection, and
 readiness rollback behavior.
 
+Startup regression tests cover an MCP route becoming available after Home
+Assistant starts, persistent probe failures, retry cleanup, and sanitized error
+messages. They use synthetic endpoints and credentials.
+
 Optional release tests launch the checksum-verified v0.0.18 through v0.0.21 binaries
 against loopback MCP/control-plane fixtures through the real integration process
 manager and updater. They use fake credentials and never connect to a live HA
 installation. See the [reproduction commands](docs/tunnel-client-v0.0.20.md#reproduce).
 GitHub Actions runs the complete suite and these tests on Linux amd64 and arm64.
+The historical [v0.0.19](docs/tunnel-client-v0.0.19.md) and
+[v0.0.20](docs/tunnel-client-v0.0.20.md) assessments record the release-specific
+compatibility checks.
