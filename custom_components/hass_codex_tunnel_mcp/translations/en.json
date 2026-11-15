@@ -68,7 +68,7 @@
     },
     "mcp_url_unreachable": {
       "title": "HA-MCP URL is not reachable",
-      "description": "The configured HA-MCP URL could not be reached: {url}"
+      "description": "The configured HA-MCP URL could not be reached: {url}. Reason: {reason}. Home Assistant will retry automatically. Check that the MCP server is enabled and the URL is correct if this persists."
     },
     "public_mcp_url": {
       "title": "HA-MCP URL does not look local",

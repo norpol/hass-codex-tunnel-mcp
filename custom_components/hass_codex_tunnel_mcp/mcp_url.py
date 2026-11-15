@@ -16,6 +16,10 @@ class MCPUrlError(ValueError):
     """Raised when an HA-MCP URL is invalid or unreachable."""
 
 
+class MCPProbeError(MCPUrlError):
+    """A retryable reachability failure with a credential-free reason."""
+
+
 @dataclass(frozen=True)
 class MCPUrlAssessment:
     """Security assessment for a configured HA-MCP URL."""
@@ -100,15 +104,21 @@ def _probe_mcp_url(value: str, timeout: float, bearer_token: str = "") -> None:
         with urlopen(request, timeout=timeout) as response:
             _validate_probe_response(response)
     except HTTPError as err:
+        err.close()
         if err.code == 404 or err.code >= 500:
-            raise MCPUrlError("mcp_probe_failed") from err
+            raise MCPProbeError(f"MCP endpoint returned HTTP {err.code}") from None
     except (TimeoutError, OSError, URLError) as err:
-        raise MCPUrlError("mcp_probe_failed") from err
+        # Do not include the original exception: it can contain a secret URL.
+        if isinstance(err, TimeoutError) or isinstance(
+            getattr(err, "reason", None), TimeoutError
+        ):
+            raise MCPProbeError("MCP endpoint timed out") from None
+        raise MCPProbeError("Could not connect to the MCP endpoint") from None
 
 
 def _validate_probe_response(response: HTTPResponse) -> None:
-    if response.status >= 500:
-        raise MCPUrlError("mcp_probe_failed")
+    if response.status == 404 or response.status >= 500:
+        raise MCPProbeError(f"MCP endpoint returned HTTP {response.status}")
 
 
 def _is_private_or_local(parsed: ParseResult) -> bool:

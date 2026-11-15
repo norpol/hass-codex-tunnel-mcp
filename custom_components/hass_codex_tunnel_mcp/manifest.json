@@ -4,9 +4,9 @@
   "codeowners": [],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/openai/hass-codex-tunnel-mcp",
+  "documentation": "https://github.com/norpol/hass-codex-tunnel-mcp",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/openai/hass-codex-tunnel-mcp/issues",
+  "issue_tracker": "https://github.com/norpol/hass-codex-tunnel-mcp/issues",
   "requirements": [],
   "version": "0.1.0"
 }
